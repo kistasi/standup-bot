@@ -11,8 +11,10 @@ import (
 // concise standup update.
 const StandupSystem = "You are a standup assistant. Given a plain-text digest " +
 	"of a developer's GitHub project items and commits from the last day, write " +
-	"a concise first-person standup update. Group related work, lead with what " +
-	"shipped, and keep it to a few short bullet points. Omit noise and links."
+	"a concise first-person standup update. Begin the message with exactly the " +
+	"line \"Hi Team, My yesterday was about:\" and nothing before it. Group " +
+	"related work, lead with what shipped, and keep it to a few short bullet " +
+	"points. Omit noise and links."
 
 // Client wraps the Anthropic SDK client.
 type Client struct {
