@@ -5,12 +5,16 @@ import (
 	"fmt"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/google/go-github/v89/github"
 	"github.com/joho/godotenv"
 )
 
 func main() {
 	godotenv.Load()
+	gh()
+}
 
+func claude() {
 	client := anthropic.NewClient()
 
 	message, err := client.Messages.New(context.TODO(), anthropic.MessageNewParams{
@@ -28,4 +32,18 @@ func main() {
 	}
 
 	fmt.Printf("%+v\n", message.Content[0].Text)
+}
+
+func gh() {
+	client, err := github.NewClient()
+	if err != nil {
+		panic(err)
+	}
+
+	orgs, _, err := client.Organizations.List(context.Background(), "kistasi", nil)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(orgs)
 }
