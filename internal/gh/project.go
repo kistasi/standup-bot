@@ -12,6 +12,7 @@ import (
 type Item struct {
 	Type      string // "Issue", "PullRequest", or "DraftIssue"
 	Title     string
+	Body      string // the issue/PR/draft description (may be empty)
 	URL       string // empty for draft issues
 	State     string // "DRAFT" for draft issues
 	UpdatedAt time.Time
@@ -33,6 +34,7 @@ type assignees struct {
 // both expose the same fields we care about.
 type issueContent struct {
 	Title     githubv4.String
+	Body      githubv4.String
 	URL       githubv4.String `graphql:"url"`
 	State     githubv4.String
 	UpdatedAt githubv4.DateTime
@@ -42,6 +44,7 @@ type issueContent struct {
 // draftContent is the DraftIssue fragment; drafts have no URL or state.
 type draftContent struct {
 	Title     githubv4.String
+	Body      githubv4.String
 	UpdatedAt githubv4.DateTime
 	Assignees assignees `graphql:"assignees(first:10)"`
 }
@@ -127,6 +130,7 @@ func (n itemNode) toItem(login string, since time.Time) (Item, bool) {
 		item = Item{
 			Type:      typename,
 			Title:     string(c.Title),
+			Body:      string(c.Body),
 			URL:       string(c.URL),
 			State:     string(c.State),
 			UpdatedAt: c.UpdatedAt.Time,
@@ -137,6 +141,7 @@ func (n itemNode) toItem(login string, since time.Time) (Item, bool) {
 		item = Item{
 			Type:      typename,
 			Title:     string(c.Title),
+			Body:      string(c.Body),
 			State:     "DRAFT",
 			UpdatedAt: c.UpdatedAt.Time,
 		}
