@@ -4,13 +4,15 @@ This file provides guidance to agentic coding tools when working with code in th
 
 ## Overview
 
-`standup-bot` is an early-stage Go application (module `github.com/kistasi/standup-bot`) that assembles standup digests from GitHub project activity, with Claude available to summarize it. It is organized into a small `main` plus two internal packages:
+`standup-bot` is an early-stage Go application (module `github.com/kistasi/standup-bot`) that assembles standup digests from GitHub project activity, with Claude available to summarize it. It is organized into a thin `main` plus four internal packages:
 
-- `main.go` — entry point. Loads env vars, builds a `gh.Client`, fetches the viewer's project items and recent commits (both over the last 24h), and prints them to stdout. Item and commit descriptions are printed indented under each entry so the whole digest can be fed to the Claude API. Author emails for the commit scan are resolved by `authorEmails()` from `AUTHOR_EMAILS` (comma-separated), falling back to `git config user.email`.
+- `main.go` — entry point. `run()` loads config, builds a `gh.Client`, fetches the viewer's project items and recent commits, renders them via `internal/render`, and either prints the digest raw or (when `STANDUP_SUMMARIZE` is truthy) feeds it to `claude.Ask` for a summary. `main` only maps a `run()` error to stderr + exit code.
+- `internal/config` — `Load()` resolves configuration from the environment (loading `.env` via `godotenv`): `GITHUB_PAT` (required), `STANDUP_ORG`/`STANDUP_PROJECT`/`STANDUP_LOOKBACK` (default `DPGAlliance` / `14` / `24h`), `AUTHOR_EMAILS` (comma-separated, falling back to `git config user.email`), and `STANDUP_SUMMARIZE`. `Config.Since()` returns `now - Lookback`.
+- `internal/render` — `Digest(project, commits, number, since)` formats the two gh digests into the indented plain-text report (project items then commits) that is printed or summarized. Descriptions are printed indented under each entry so the whole thing can be fed to the Claude API.
 - `internal/gh` — typed wrapper around the GitHub GraphQL v4 API (via `shurcooL/githubv4`). `New(token)` builds a bearer-authenticated client.
   - `MyProjectItems(ctx, org, number, since)` pages through an org ProjectV2, flattening Issue / PullRequest / DraftIssue nodes into a `ProjectDigest` filtered to the PAT owner (`viewer`) and to items updated on or after `since`. Each `Item` carries the issue/PR/draft `Body`.
   - `OrgCommits(ctx, org, since, emails)` pages through the org's repositories newest-pushed-first (stopping once a repo's last push predates `since`) and collects default-branch commits authored by any of `emails`, returning a `CommitDigest`. Each `Commit` carries the headline (`Message`) and full `Body`. Filtering is by **author email** (`author:{emails:...}`), not GitHub account: the contributions API and `author:{id:...}` filter both require the commit email to be linked to the account, and silently return nothing when it isn't. Release-automation commits (headline starting `release `) and merge commits (2+ parents) are skipped as standup noise.
-- `internal/claude` — thin wrapper around the Anthropic Messages API. `New()` builds a client; `Ask(ctx, system, prompt)` sends a single prompt and returns the reply. Not yet wired into `main` — the digest is currently printed raw rather than summarized.
+- `internal/claude` — thin wrapper around the Anthropic Messages API. `New()` builds a client; `Ask(ctx, system, prompt)` sends a single prompt and returns the reply. `StandupSystem` is the system instruction used to turn a digest into a standup update. Wired into `main` behind `STANDUP_SUMMARIZE`.
 
 ## Commands
 
@@ -26,13 +28,13 @@ Requires Go 1.26+.
 
 ## Configuration
 
-Env vars are loaded from a `.env` file via `godotenv.Load()` (`.env` is gitignored). Copy `.env.example` to `.env` and fill in:
+Env vars are loaded from a `.env` file via `godotenv.Load()` in `config.Load()` (`.env` is gitignored). Copy `.env.example` to `.env` and fill in:
 
-- `GITHUB_PAT` — GitHub personal access token, read directly from the environment in `main.go`. Required; the program exits if it is unset.
-- `ANTHROPIC_API_KEY` — read automatically by the Anthropic SDK. `claude.New()` / `anthropic.NewClient()` take no explicit key argument. Only needed once the `claude` package is used.
-- `AUTHOR_EMAILS` — optional, comma-separated git emails to attribute commits to in `OrgCommits`. When unset, `main.go` falls back to `git config user.email`.
-
-The org and project number are currently hardcoded in `main.go` (`MyProjectItems(ctx, "DPGAlliance", 14, since)` and `OrgCommits(ctx, "DPGAlliance", since, emails)`).
+- `GITHUB_PAT` — GitHub personal access token. Required; `config.Load()` errors if it is unset.
+- `ANTHROPIC_API_KEY` — read automatically by the Anthropic SDK. `claude.New()` / `anthropic.NewClient()` take no explicit key argument. Only needed when `STANDUP_SUMMARIZE` is on.
+- `AUTHOR_EMAILS` — optional, comma-separated git emails to attribute commits to in `OrgCommits`. When unset, falls back to `git config user.email`; `config.Load()` errors if neither yields an email.
+- `STANDUP_ORG` / `STANDUP_PROJECT` / `STANDUP_LOOKBACK` — optional overrides for the project the digest is built from. Defaults: `DPGAlliance`, `14`, `24h` (`STANDUP_LOOKBACK` is a Go duration).
+- `STANDUP_SUMMARIZE` — optional; set truthy (`1`/`true`/`yes`) to feed the digest to Claude instead of printing it raw.
 
 ## Notes
 
