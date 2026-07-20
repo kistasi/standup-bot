@@ -18,8 +18,7 @@ func main() {
 	}
 }
 
-// run assembles the digest and either prints it raw or, when STANDUP_SUMMARIZE
-// is set, feeds it to Claude for a standup summary.
+// run assembles the digest and feeds it to Claude for a standup summary.
 func run() error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -41,11 +40,6 @@ func run() error {
 	}
 
 	digest := render.Digest(project, commits, cfg.ProjectNumber, since)
-
-	if !cfg.Summarize {
-		fmt.Print(digest)
-		return nil
-	}
 
 	summary, err := claude.New().Ask(ctx, claude.StandupSystem, digest)
 	if err != nil {
