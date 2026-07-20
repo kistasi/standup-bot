@@ -20,7 +20,7 @@ This file provides guidance to agentic coding tools when working with code in th
 ```bash
 go run .          # run the program
 go build ./...    # compile
-go test ./...     # run all tests (no tests exist yet)
+go test ./...     # run all tests (every internal package has tests)
 go test -run TestName ./path  # run a single test
 go mod tidy       # sync go.mod/go.sum after changing imports
 ```
@@ -40,6 +40,8 @@ Env vars are loaded from a `.env` file via `godotenv.Load()` in `config.Load()` 
 ## Scheduling
 
 `.github/workflows/standup.yml` runs `go run .` on a cron (`0 7 * * 1-5` — 07:00 UTC, Mon–Fri) and via `workflow_dispatch`. Cron is UTC and may be delayed a few minutes under GitHub load. Secrets `GH_PAT` / `ANTHROPIC_API_KEY` / `SLACK_WEBHOOK_URL` and repo Variables `GH_ORG` / `GH_PROJECT` / `GH_LOOKBACK` / `AUTHOR_EMAILS` feed the job's env. Monday's run only reaches back `GH_LOOKBACK`, so a 24h window misses Fri + the weekend; widen `GH_LOOKBACK` (e.g. `72h`) to cover it.
+
+`.github/workflows/test.yml` is CI: on push to `main`, on any pull request, and via `workflow_dispatch` it runs `go build ./...`, `go vet ./...`, and `go test -race -cover ./...`. It needs no secrets or variables.
 
 ## Notes
 
