@@ -45,6 +45,6 @@ Env vars are loaded from a `.env` file via `godotenv.Load()` in `config.Load()` 
 
 ## Notes
 
-- The Claude model is referenced via SDK constants (e.g. `anthropic.ModelClaudeOpus4_6`), not raw strings.
+- The Claude model is referenced via SDK constants (e.g. `anthropic.ModelClaudeOpus4_8`), not raw strings.
 - `internal/gh` authenticates by injecting a `Bearer` token through a custom `http.RoundTripper` that clones the request before mutating headers — follow that pattern rather than mutating requests in place.
 - GraphQL selections are expressed as Go structs with `graphql:"..."` tags, including inline fragments (`... on Issue`); `Item` flattens the union content into one shape.

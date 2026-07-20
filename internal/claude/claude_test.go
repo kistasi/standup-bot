@@ -85,6 +85,28 @@ func TestAsk_APIError(t *testing.T) {
 	}
 }
 
+func TestAsk_EmptyContentReturnsEmptyString(t *testing.T) {
+	// A response with no content blocks must not panic (it used to index
+	// Content[0]); Ask returns an empty reply and no error.
+	client := stubClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{
+			"id":"msg_1","type":"message","role":"assistant","model":"claude",
+			"content":[],
+			"stop_reason":"end_turn",
+			"usage":{"input_tokens":10,"output_tokens":0}
+		}`)
+	})
+
+	got, err := client.Ask(context.Background(), StandupSystem, "the digest")
+	if err != nil {
+		t.Fatalf("Ask() error = %v, want nil", err)
+	}
+	if got != "" {
+		t.Errorf("Ask() = %q, want empty string", got)
+	}
+}
+
 func TestStandupSystem_Anchors(t *testing.T) {
 	// The prompt's whole contract is the fixed opening and closing lines; guard
 	// against accidental edits that would drop them.

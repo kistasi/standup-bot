@@ -44,7 +44,7 @@ type commitNode struct {
 }
 
 // OrgCommits returns commits authored by any of the given emails, made on the
-// default branch of any DPGAlliance repository since `since`. Filtering by
+// default branch of any repository in org since `since`. Filtering by
 // author email (rather than by GitHub account) is deliberate: it matches
 // commits even when the author's git email is not linked to their account.
 //

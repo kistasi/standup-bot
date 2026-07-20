@@ -3,6 +3,7 @@ package claude
 
 import (
 	"context"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -39,10 +40,16 @@ func (c *Client) Ask(ctx context.Context, system, prompt string) (string, error)
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
 		},
-		Model: anthropic.ModelClaudeOpus4_6,
+		Model: anthropic.ModelClaudeOpus4_8,
 	})
 	if err != nil {
 		return "", err
 	}
-	return message.Content[0].Text, nil
+	// Guard against a response with no text: concatenate any text blocks rather
+	// than indexing Content[0], which would panic on an empty content array.
+	var reply strings.Builder
+	for _, block := range message.Content {
+		reply.WriteString(block.Text)
+	}
+	return reply.String(), nil
 }
