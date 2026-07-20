@@ -4,7 +4,11 @@ This file provides guidance to agentic coding tools when working with code in th
 
 ## Overview
 
-`standup-bot` is an early-stage Go application that calls the Anthropic Claude API. Currently `main.go` is a single-shot proof-of-concept: it loads env vars, creates a client, and prints one Claude response. There is no standup logic yet — expect to build it out.
+`standup-bot` is an early-stage Go application (module `github.com/kistasi/standup-bot`) that assembles standup digests from GitHub project activity, with Claude available to summarize it. It is organized into a small `main` plus two internal packages:
+
+- `main.go` — entry point. Loads env vars, builds a `gh.Client`, fetches the viewer's project items updated in the last 24h, and prints a digest to stdout.
+- `internal/gh` — typed wrapper around the GitHub GraphQL v4 API (via `shurcooL/githubv4`). `New(token)` builds a bearer-authenticated client; `MyProjectItems(ctx, org, number, since)` pages through an org ProjectV2, flattening Issue / PullRequest / DraftIssue nodes into a `ProjectDigest` filtered to the PAT owner (`viewer`) and to items updated on or after `since`.
+- `internal/claude` — thin wrapper around the Anthropic Messages API. `New()` builds a client; `Ask(ctx, system, prompt)` sends a single prompt and returns the reply. Not yet wired into `main` — the digest is currently printed raw rather than summarized.
 
 ## Commands
 
@@ -20,10 +24,15 @@ Requires Go 1.26+.
 
 ## Configuration
 
-- Requires `ANTHROPIC_API_KEY` in a `.env` file (loaded via `godotenv.Load()`; `.env` is gitignored). The Anthropic SDK reads this key automatically from the environment — `anthropic.NewClient()` takes no explicit key argument.
-- Copy `.env.example` to `.env` to start. Note: `.env.example` currently contains what appears to be a real API key rather than a placeholder — treat it as compromised and rotate it.
+Env vars are loaded from a `.env` file via `godotenv.Load()` (`.env` is gitignored). Copy `.env.example` to `.env` and fill in:
+
+- `GITHUB_PAT` — GitHub personal access token, read directly from the environment in `main.go`. Required; the program exits if it is unset.
+- `ANTHROPIC_API_KEY` — read automatically by the Anthropic SDK. `claude.New()` / `anthropic.NewClient()` take no explicit key argument. Only needed once the `claude` package is used.
+
+The org and project number are currently hardcoded in `main.go` (`MyProjectItems(ctx, "DPGAlliance", 14, since)`).
 
 ## Notes
 
 - The Claude model is referenced via SDK constants (e.g. `anthropic.ModelClaudeOpus4_6`), not raw strings.
-- Dependencies in `go.mod` are marked `// indirect` because nothing is committed that imports them at the module level yet; running `go mod tidy` after adding real usage will promote the direct ones.
+- `internal/gh` authenticates by injecting a `Bearer` token through a custom `http.RoundTripper` that clones the request before mutating headers — follow that pattern rather than mutating requests in place.
+- GraphQL selections are expressed as Go structs with `graphql:"..."` tags, including inline fragments (`... on Issue`); `Item` flattens the union content into one shape.
