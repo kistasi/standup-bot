@@ -1,0 +1,26 @@
+name: standup
+
+on:
+  schedule:
+    - cron: '0 7 * * 1-5' # 07:00 UTC, Mon–Fri (UTC; may be delayed a few minutes)
+  workflow_dispatch: {} # manual trigger for testing
+
+jobs:
+  standup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - run: go run .
+        env:
+          # Secrets
+          GH_PAT: ${{ secrets.GH_PAT }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          # Non-secret config
+          GH_ORG: ${{ vars.GH_ORG }}
+          GH_PROJECT: ${{ vars.GH_PROJECT }}
+          GH_LOOKBACK: ${{ vars.GH_LOOKBACK }}
+          AUTHOR_EMAILS: ${{ vars.AUTHOR_EMAILS }}

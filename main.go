@@ -9,6 +9,7 @@ import (
 	"github.com/kistasi/standup-bot/internal/config"
 	"github.com/kistasi/standup-bot/internal/gh"
 	"github.com/kistasi/standup-bot/internal/render"
+	"github.com/kistasi/standup-bot/internal/slack"
 )
 
 func main() {
@@ -46,5 +47,13 @@ func run() error {
 		return err
 	}
 	fmt.Println(summary)
+
+	// Post to Slack only when a webhook is configured; otherwise the printed
+	// summary above is the whole output.
+	if cfg.SlackWebhookURL != "" {
+		if err := slack.New(cfg.SlackWebhookURL).Post(ctx, summary); err != nil {
+			return err
+		}
+	}
 	return nil
 }

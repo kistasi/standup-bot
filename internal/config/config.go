@@ -19,11 +19,16 @@ type Config struct {
 	ProjectNumber int           // GH_PROJECT
 	Lookback      time.Duration // GH_LOOKBACK; the reporting window
 	AuthorEmails  []string      // AUTHOR_EMAILS
+
+	// SlackWebhookURL is the only optional variable: when set, the summary is
+	// posted to the Slack incoming webhook; when empty, it is only printed.
+	SlackWebhookURL string // SLACK_WEBHOOK_URL
 }
 
-// Load reads configuration from the environment. Every variable is required:
-// there are no defaults or fallbacks, so Load returns an error naming any
-// variable that is unset (or malformed, for typed values).
+// Load reads configuration from the environment. Every variable is required
+// except SLACK_WEBHOOK_URL: there are no defaults or fallbacks, so Load returns
+// an error naming any required variable that is unset (or malformed, for typed
+// values).
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
@@ -61,11 +66,12 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		GitHubToken:   token,
-		Org:           org,
-		ProjectNumber: project,
-		Lookback:      lookback,
-		AuthorEmails:  emails,
+		GitHubToken:     token,
+		Org:             org,
+		ProjectNumber:   project,
+		Lookback:        lookback,
+		AuthorEmails:    emails,
+		SlackWebhookURL: strings.TrimSpace(os.Getenv("SLACK_WEBHOOK_URL")),
 	}, nil
 }
 

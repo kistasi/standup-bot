@@ -4,15 +4,16 @@ This file provides guidance to agentic coding tools when working with code in th
 
 ## Overview
 
-`standup-bot` is an early-stage Go application (module `github.com/kistasi/standup-bot`) that assembles standup digests from GitHub project activity, with Claude available to summarize it. It is organized into a thin `main` plus four internal packages:
+`standup-bot` is an early-stage Go application (module `github.com/kistasi/standup-bot`) that assembles standup digests from GitHub project activity, summarizes them with Claude, and optionally posts the result to Slack. It is organized into a thin `main` plus five internal packages:
 
-- `main.go` — entry point. `run()` loads config, builds a `gh.Client`, fetches the viewer's project items and recent commits, renders them via `internal/render`, and feeds the digest to `claude.Ask` for a standup summary. `main` only maps a `run()` error to stderr + exit code.
-- `internal/config` — `Load()` resolves configuration from the environment (loading `.env` via `godotenv`). Every variable is required — there are no defaults or fallbacks, and `Load()` errors naming any that is unset (or malformed): `GH_PAT`, `GH_ORG`, `GH_PROJECT` (int), `GH_LOOKBACK` (Go duration), and `AUTHOR_EMAILS` (comma-separated git emails). `Config.Since()` returns `now - Lookback`.
+- `main.go` — entry point. `run()` loads config, builds a `gh.Client`, fetches the viewer's project items and recent commits, renders them via `internal/render`, feeds the digest to `claude.Ask` for a standup summary, prints it, and — when `SLACK_WEBHOOK_URL` is set — posts it via `slack.Post`. `main` only maps a `run()` error to stderr + exit code.
+- `internal/config` — `Load()` resolves configuration from the environment (loading `.env` via `godotenv`). Every variable is required except `SLACK_WEBHOOK_URL` — there are no defaults or fallbacks, and `Load()` errors naming any required one that is unset (or malformed): `GH_PAT`, `GH_ORG`, `GH_PROJECT` (int), `GH_LOOKBACK` (Go duration), and `AUTHOR_EMAILS` (comma-separated git emails). `SLACK_WEBHOOK_URL` is the sole optional var: when set, the summary is posted to Slack; when empty, it is only printed. `Config.Since()` returns `now - Lookback`.
 - `internal/render` — `Digest(project, commits, number, since)` formats the two gh digests into the indented plain-text report (project items then commits) that is printed or summarized. Descriptions are printed indented under each entry so the whole thing can be fed to the Claude API.
 - `internal/gh` — typed wrapper around the GitHub GraphQL v4 API (via `shurcooL/githubv4`). `New(token)` builds a bearer-authenticated client.
   - `MyProjectItems(ctx, org, number, since)` pages through an org ProjectV2, flattening Issue / PullRequest / DraftIssue nodes into a `ProjectDigest` filtered to the PAT owner (`viewer`) and to items updated on or after `since`. Each `Item` carries the issue/PR/draft `Body`.
   - `OrgCommits(ctx, org, since, emails)` pages through the org's repositories newest-pushed-first (stopping once a repo's last push predates `since`) and collects default-branch commits authored by any of `emails`, returning a `CommitDigest`. Each `Commit` carries the headline (`Message`) and full `Body`. Filtering is by **author email** (`author:{emails:...}`), not GitHub account: the contributions API and `author:{id:...}` filter both require the commit email to be linked to the account, and silently return nothing when it isn't. Release-automation commits (headline starting `release `) and merge commits (2+ parents) are skipped as standup noise.
 - `internal/claude` — thin wrapper around the Anthropic Messages API. `New()` builds a client; `Ask(ctx, system, prompt)` sends a single prompt and returns the reply. `StandupSystem` is the system instruction used to turn a digest into a standup update. `main` always runs the digest through it.
+- `internal/slack` — posts messages to a Slack incoming webhook using stdlib `net/http` (no new deps). `New(webhookURL)` mirrors `gh.New(token)` (the URL is the credential); `Post(ctx, text)` sends `{"text": text}` as JSON with a 10s-timeout client and treats any non-`200`/non-`ok` response as an error. `main` posts only when `SLACK_WEBHOOK_URL` is configured.
 
 ## Commands
 
@@ -28,12 +29,17 @@ Requires Go 1.26+.
 
 ## Configuration
 
-Env vars are loaded from a `.env` file via `godotenv.Load()` in `config.Load()` (`.env` is gitignored). Every variable below is required — `config.Load()` errors naming any that is unset (or malformed). Copy `.env.example` to `.env` and fill in:
+Env vars are loaded from a `.env` file via `godotenv.Load()` in `config.Load()` (`.env` is gitignored). Every variable below is required except `SLACK_WEBHOOK_URL` — `config.Load()` errors naming any required one that is unset (or malformed). Copy `.env.example` to `.env` and fill in:
 
 - `GH_PAT` — GitHub personal access token.
 - `ANTHROPIC_API_KEY` — read automatically by the Anthropic SDK. `claude.New()` / `anthropic.NewClient()` take no explicit key argument. Always needed, since the digest is always summarized with Claude.
 - `AUTHOR_EMAILS` — comma-separated git emails to attribute commits to in `OrgCommits`. `config.Load()` errors if it yields no email.
 - `GH_ORG` / `GH_PROJECT` / `GH_LOOKBACK` — the project the digest is built from (`GH_PROJECT` is an int, `GH_LOOKBACK` is a Go duration).
+- `SLACK_WEBHOOK_URL` — optional Slack incoming-webhook URL. When set, the summary is posted there in addition to being printed; when empty, it is only printed.
+
+## Scheduling
+
+`.github/workflows/standup.yml` runs `go run .` on a cron (`0 7 * * 1-5` — 07:00 UTC, Mon–Fri) and via `workflow_dispatch`. Cron is UTC and may be delayed a few minutes under GitHub load. Secrets `GH_PAT` / `ANTHROPIC_API_KEY` / `SLACK_WEBHOOK_URL` and repo Variables `GH_ORG` / `GH_PROJECT` / `GH_LOOKBACK` / `AUTHOR_EMAILS` feed the job's env. Monday's run only reaches back `GH_LOOKBACK`, so a 24h window misses Fri + the weekend; widen `GH_LOOKBACK` (e.g. `72h`) to cover it.
 
 ## Notes
 
