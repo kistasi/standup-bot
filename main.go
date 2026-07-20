@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/google/go-github/v89/github"
@@ -35,7 +36,8 @@ func claude() {
 }
 
 func gh() {
-	client, err := github.NewClient()
+	pat := os.Getenv("GITHUB_PAT")
+	client, err := github.NewClient(github.WithAuthToken(pat))
 	if err != nil {
 		panic(err)
 	}
