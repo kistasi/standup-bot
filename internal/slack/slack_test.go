@@ -37,6 +37,29 @@ func TestPost_Success(t *testing.T) {
 	}
 }
 
+func TestPost_ConvertsBoldToMrkdwn(t *testing.T) {
+	// Claude emits **bold** (standard Markdown); Slack mrkdwn wants *bold*.
+	var gotText string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		gotText = body["text"]
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, "ok")
+	}))
+	defer srv.Close()
+
+	in := "- **Shipped the fix** (#517): bumped to `800ms` and **dropped** a fetch."
+	want := "- *Shipped the fix* (#517): bumped to `800ms` and *dropped* a fetch."
+	if err := New(srv.URL).Post(context.Background(), in); err != nil {
+		t.Fatalf("Post() error = %v", err)
+	}
+	if gotText != want {
+		t.Errorf("posted text = %q, want %q", gotText, want)
+	}
+}
+
 func TestPost_NonOKStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)

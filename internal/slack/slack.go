@@ -8,9 +8,22 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
+
+// boldRe matches standard-Markdown **bold** spans. Slack's mrkdwn uses single
+// asterisks for bold, so **bold** would otherwise render with the asterisks
+// showing literally.
+var boldRe = regexp.MustCompile(`\*\*(.+?)\*\*`)
+
+// toMrkdwn converts the subset of standard Markdown that Claude emits into
+// Slack's mrkdwn dialect. Only bold differs for our content: `code` spans use
+// single backticks in both, and links are omitted by the standup prompt.
+func toMrkdwn(text string) string {
+	return boldRe.ReplaceAllString(text, "*$1*")
+}
 
 // Client posts messages to a single Slack incoming webhook.
 type Client struct {
@@ -31,7 +44,7 @@ func New(webhookURL string) *Client {
 // responds with 200/"ok" on success or a non-200 status with an error string
 // (e.g. "invalid_payload") otherwise; both are treated as errors here.
 func (c *Client) Post(ctx context.Context, text string) error {
-	payload, err := json.Marshal(map[string]string{"text": text})
+	payload, err := json.Marshal(map[string]string{"text": toMrkdwn(text)})
 	if err != nil {
 		return err
 	}
