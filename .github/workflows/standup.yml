@@ -2,7 +2,7 @@ name: standup
 
 on:
   schedule:
-    - cron: '0 7 * * 1-5' # 07:00 UTC, Mon–Fri (UTC; may be delayed a few minutes)
+    - cron: '0 5 * * 1-5' # 05:00 UTC = 07:00 Budapest (CEST); 06:00 in winter (CET). Cron is UTC, no DST.
   workflow_dispatch: {} # manual trigger for testing
 
 jobs:

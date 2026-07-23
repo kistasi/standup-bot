@@ -39,7 +39,7 @@ Env vars are loaded from a `.env` file via `godotenv.Load()` in `config.Load()` 
 
 ## Scheduling
 
-`.github/workflows/standup.yml` runs `go run .` on a cron (`0 7 * * 1-5` — 07:00 UTC, Mon–Fri) and via `workflow_dispatch`. Cron is UTC and may be delayed a few minutes under GitHub load. Secrets `GH_PAT` / `ANTHROPIC_API_KEY` / `SLACK_WEBHOOK_URL` and repo Variables `GH_ORG` / `GH_PROJECT` / `GH_LOOKBACK` / `AUTHOR_EMAILS` feed the job's env. Monday's run only reaches back `GH_LOOKBACK`, so a 24h window misses Fri + the weekend; widen `GH_LOOKBACK` (e.g. `72h`) to cover it.
+`.github/workflows/standup.yml` runs `go run .` on a cron (`0 5 * * 1-5` — 05:00 UTC, Mon–Fri) and via `workflow_dispatch`. That's 07:00 Budapest during summer (CEST); GitHub cron is UTC with no DST support, so in winter (CET) it lands at 06:00 Budapest. Cron may be delayed a few minutes under GitHub load. Secrets `GH_PAT` / `ANTHROPIC_API_KEY` / `SLACK_WEBHOOK_URL` and repo Variables `GH_ORG` / `GH_PROJECT` / `GH_LOOKBACK` / `AUTHOR_EMAILS` feed the job's env. Monday's run only reaches back `GH_LOOKBACK`, so a 24h window misses Fri + the weekend; widen `GH_LOOKBACK` (e.g. `72h`) to cover it.
 
 `.github/workflows/test.yml` is CI: on push to `main`, on any pull request, and via `workflow_dispatch` it runs `go build ./...`, `go vet ./...`, and `go test -race -cover ./...`. It needs no secrets or variables.
 
