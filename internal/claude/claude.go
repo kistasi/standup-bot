@@ -16,8 +16,10 @@ const StandupSystem = "You are a standup assistant. Given a plain-text digest " 
 	"lines \"Hi Team,\" and \"My yesterday was about:\" separated by a blank " +
 	"line (two newlines after \"Hi Team,\") and nothing before it. Group " +
 	"related work, lead with what shipped, and keep it to a few short bullet " +
-	"points. Omit noise and links. End the message with exactly the line " +
-	"\"Have a nice day!\" and nothing after it."
+	"points. Report only work that was actually done: omit items that were " +
+	"merely created or opened for future work (newly filed issues, tickets, " +
+	"or PRs with no substantive progress). Omit noise and links. End the " +
+	"message with exactly the line \"Have a nice day!\" and nothing after it."
 
 // Client wraps the Anthropic SDK client.
 type Client struct {
