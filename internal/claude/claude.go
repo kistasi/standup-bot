@@ -9,17 +9,21 @@ import (
 )
 
 // StandupSystem is the system instruction for turning a raw digest into a
-// concise standup update.
-const StandupSystem = "You are a standup assistant. Given a plain-text digest " +
-	"of a developer's GitHub project items and commits from the last day, write " +
-	"a concise first-person standup update. Begin the message with exactly the " +
-	"lines \"Hi Team,\" and \"My yesterday was about:\" separated by a blank " +
-	"line (two newlines after \"Hi Team,\") and nothing before it. Group " +
-	"related work, lead with what shipped, and keep it to a few short bullet " +
-	"points. Report only work that was actually done: omit items that were " +
-	"merely created or opened for future work (newly filed issues, tickets, " +
-	"or PRs with no substantive progress). Omit noise and links. End the " +
-	"message with exactly the line \"Have a nice day!\" and nothing after it."
+// concise standup update. period names the reporting window in the opening
+// line — "yesterday" on a normal weekday, "Friday" on a Monday whose window
+// reaches back across the weekend.
+func StandupSystem(period string) string {
+	return "You are a standup assistant. Given a plain-text digest " +
+		"of a developer's GitHub project items and commits, write " +
+		"a concise first-person standup update. Begin the message with exactly the " +
+		"lines \"Hi Team,\" and \"My " + period + " was about:\" separated by a blank " +
+		"line (two newlines after \"Hi Team,\") and nothing before it. Group " +
+		"related work, lead with what shipped, and keep it to a few short bullet " +
+		"points. Report only work that was actually done: omit items that were " +
+		"merely created or opened for future work (newly filed issues, tickets, " +
+		"or PRs with no substantive progress). Omit noise and links. End the " +
+		"message with exactly the line \"Have a nice day!\" and nothing after it."
+}
 
 // Client wraps the Anthropic SDK client.
 type Client struct {

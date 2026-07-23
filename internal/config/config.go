@@ -14,11 +14,10 @@ import (
 
 // Config holds everything main needs to assemble and render a digest.
 type Config struct {
-	GitHubToken   string        // GH_PAT
-	Org           string        // GH_ORG
-	ProjectNumber int           // GH_PROJECT
-	Lookback      time.Duration // GH_LOOKBACK; the reporting window
-	AuthorEmails  []string      // AUTHOR_EMAILS
+	GitHubToken   string   // GH_PAT
+	Org           string   // GH_ORG
+	ProjectNumber int      // GH_PROJECT
+	AuthorEmails  []string // AUTHOR_EMAILS
 
 	// SlackWebhookURL is the only optional variable: when set, the summary is
 	// posted to the Slack incoming webhook; when empty, it is only printed.
@@ -48,14 +47,6 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("GH_PROJECT %q: %w", projectRaw, err)
 	}
-	lookbackRaw, err := requireEnv("GH_LOOKBACK")
-	if err != nil {
-		return nil, err
-	}
-	lookback, err := time.ParseDuration(lookbackRaw)
-	if err != nil {
-		return nil, fmt.Errorf("GH_LOOKBACK %q: %w", lookbackRaw, err)
-	}
 	emailsRaw, err := requireEnv("AUTHOR_EMAILS")
 	if err != nil {
 		return nil, err
@@ -69,15 +60,41 @@ func Load() (*Config, error) {
 		GitHubToken:     token,
 		Org:             org,
 		ProjectNumber:   project,
-		Lookback:        lookback,
 		AuthorEmails:    emails,
 		SlackWebhookURL: strings.TrimSpace(os.Getenv("SLACK_WEBHOOK_URL")),
 	}, nil
 }
 
-// Since returns the start of the reporting window (now minus the lookback).
+// Since returns the start of the reporting window: the previous standup run.
+// The bot runs Mon–Fri, so a weekday reaches back to yesterday, but Monday
+// reaches back across the weekend to Friday. This is derived from the current
+// weekday, so there is no lookback variable to keep in sync with the schedule.
 func (c *Config) Since() time.Time {
-	return time.Now().Add(-c.Lookback)
+	return since(time.Now())
+}
+
+// since is Since with the clock injected, for testing.
+func since(now time.Time) time.Time {
+	days := 1
+	if now.Weekday() == time.Monday {
+		days = 3 // Friday, Saturday, Sunday
+	}
+	return now.AddDate(0, 0, -days)
+}
+
+// PeriodLabel names the start of the reporting window for the standup message:
+// "Friday" on Monday (the window reaches back across the weekend), "yesterday"
+// on other weekdays. It stays in step with Since.
+func (c *Config) PeriodLabel() string {
+	return periodLabel(time.Now())
+}
+
+// periodLabel is PeriodLabel with the clock injected, for testing.
+func periodLabel(now time.Time) string {
+	if now.Weekday() == time.Monday {
+		return "Friday"
+	}
+	return "yesterday"
 }
 
 // requireEnv returns the value of key, or an error when it is unset or empty.

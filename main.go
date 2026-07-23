@@ -42,7 +42,7 @@ func run() error {
 
 	digest := render.Digest(project, commits, cfg.ProjectNumber, since)
 
-	summary, err := claude.New().Ask(ctx, claude.StandupSystem, digest)
+	summary, err := claude.New().Ask(ctx, claude.StandupSystem(cfg.PeriodLabel()), digest)
 	if err != nil {
 		return err
 	}

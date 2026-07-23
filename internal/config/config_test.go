@@ -13,7 +13,6 @@ func setAll(t *testing.T) {
 	t.Setenv("GH_PAT", "token123")
 	t.Setenv("GH_ORG", "acme")
 	t.Setenv("GH_PROJECT", "42")
-	t.Setenv("GH_LOOKBACK", "24h")
 	t.Setenv("AUTHOR_EMAILS", "a@example.com, b@example.com")
 	t.Setenv("SLACK_WEBHOOK_URL", "")
 }
@@ -33,9 +32,6 @@ func TestLoad_Valid(t *testing.T) {
 	}
 	if cfg.ProjectNumber != 42 {
 		t.Errorf("ProjectNumber = %d, want 42", cfg.ProjectNumber)
-	}
-	if cfg.Lookback != 24*time.Hour {
-		t.Errorf("Lookback = %v, want 24h", cfg.Lookback)
 	}
 	want := []string{"a@example.com", "b@example.com"}
 	if len(cfg.AuthorEmails) != len(want) {
@@ -66,7 +62,7 @@ func TestLoad_SlackOptional(t *testing.T) {
 }
 
 func TestLoad_MissingRequired(t *testing.T) {
-	for _, key := range []string{"GH_PAT", "GH_ORG", "GH_PROJECT", "GH_LOOKBACK", "AUTHOR_EMAILS"} {
+	for _, key := range []string{"GH_PAT", "GH_ORG", "GH_PROJECT", "AUTHOR_EMAILS"} {
 		t.Run(key, func(t *testing.T) {
 			setAll(t)
 			t.Setenv(key, "") // requireEnv treats empty/whitespace as unset
@@ -105,19 +101,6 @@ func TestLoad_MalformedProject(t *testing.T) {
 	}
 }
 
-func TestLoad_MalformedLookback(t *testing.T) {
-	setAll(t)
-	t.Setenv("GH_LOOKBACK", "yesterday")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() error = nil, want error for malformed GH_LOOKBACK")
-	}
-	if !strings.Contains(err.Error(), "GH_LOOKBACK") {
-		t.Errorf("Load() error = %q, want it to name GH_LOOKBACK", err)
-	}
-}
-
 func TestLoad_EmailsAllBlank(t *testing.T) {
 	setAll(t)
 	// Non-empty (so requireEnv passes) but yields no emails after splitting.
@@ -133,14 +116,47 @@ func TestLoad_EmailsAllBlank(t *testing.T) {
 }
 
 func TestSince(t *testing.T) {
-	cfg := &Config{Lookback: 2 * time.Hour}
+	// 2026-07-20 is a Monday; the days that follow are Tue–Sun.
+	monday := time.Date(2026, 7, 20, 7, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name     string
+		now      time.Time
+		wantDays int // calendar days Since should reach back
+	}{
+		{"monday reaches back to friday", monday, 3},
+		{"tuesday reaches back to monday", monday.AddDate(0, 0, 1), 1},
+		{"friday reaches back to thursday", monday.AddDate(0, 0, 4), 1},
+		{"sunday reaches back to saturday", monday.AddDate(0, 0, 6), 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := since(tt.now)
+			want := tt.now.AddDate(0, 0, -tt.wantDays)
+			if !got.Equal(want) {
+				t.Errorf("since(%s) = %v, want %v (%d days back)", tt.now.Weekday(), got, want, tt.wantDays)
+			}
+		})
+	}
+}
 
-	before := time.Now().Add(-2 * time.Hour)
-	got := cfg.Since()
-	after := time.Now().Add(-2 * time.Hour)
-
-	if got.Before(before.Add(-time.Second)) || got.After(after.Add(time.Second)) {
-		t.Errorf("Since() = %v, want ~now-2h (between %v and %v)", got, before, after)
+func TestPeriodLabel(t *testing.T) {
+	// 2026-07-20 is a Monday; the days that follow are Tue–Sun.
+	monday := time.Date(2026, 7, 20, 7, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		now  time.Time
+		want string
+	}{
+		{"monday", monday, "Friday"},
+		{"tuesday", monday.AddDate(0, 0, 1), "yesterday"},
+		{"friday", monday.AddDate(0, 0, 4), "yesterday"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := periodLabel(tt.now); got != tt.want {
+				t.Errorf("periodLabel(%s) = %q, want %q", tt.now.Weekday(), got, tt.want)
+			}
+		})
 	}
 }
 

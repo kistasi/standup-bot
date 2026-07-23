@@ -22,5 +22,4 @@ jobs:
           # Non-secret config
           GH_ORG: ${{ vars.GH_ORG }}
           GH_PROJECT: ${{ vars.GH_PROJECT }}
-          GH_LOOKBACK: ${{ vars.GH_LOOKBACK }}
           AUTHOR_EMAILS: ${{ vars.AUTHOR_EMAILS }}

@@ -50,7 +50,7 @@ func TestAsk_ReturnsReplyText(t *testing.T) {
 		}`)
 	})
 
-	got, err := client.Ask(context.Background(), StandupSystem, "the digest")
+	got, err := client.Ask(context.Background(), StandupSystem("yesterday"), "the digest")
 	if err != nil {
 		t.Fatalf("Ask() error = %v", err)
 	}
@@ -60,7 +60,7 @@ func TestAsk_ReturnsReplyText(t *testing.T) {
 
 	// The request carried the system instruction, the user prompt, and the
 	// configured token budget.
-	if len(gotReq.System) == 0 || gotReq.System[0]["text"] != StandupSystem {
+	if len(gotReq.System) == 0 || gotReq.System[0]["text"] != StandupSystem("yesterday") {
 		t.Errorf("request system = %+v, want it to carry StandupSystem", gotReq.System)
 	}
 	if gotReq.MaxTokens != 2048 {
@@ -80,7 +80,7 @@ func TestAsk_APIError(t *testing.T) {
 		io.WriteString(w, `{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}`)
 	})
 
-	if _, err := client.Ask(context.Background(), StandupSystem, "x"); err == nil {
+	if _, err := client.Ask(context.Background(), StandupSystem("yesterday"), "x"); err == nil {
 		t.Fatal("Ask() error = nil, want error on 400 response")
 	}
 }
@@ -98,7 +98,7 @@ func TestAsk_EmptyContentReturnsEmptyString(t *testing.T) {
 		}`)
 	})
 
-	got, err := client.Ask(context.Background(), StandupSystem, "the digest")
+	got, err := client.Ask(context.Background(), StandupSystem("yesterday"), "the digest")
 	if err != nil {
 		t.Fatalf("Ask() error = %v, want nil", err)
 	}
@@ -108,11 +108,24 @@ func TestAsk_EmptyContentReturnsEmptyString(t *testing.T) {
 }
 
 func TestStandupSystem_Anchors(t *testing.T) {
-	// The prompt's whole contract is the fixed opening and closing lines; guard
-	// against accidental edits that would drop them.
-	for _, anchor := range []string{"Hi Team,", "My yesterday was about:", "Have a nice day!"} {
-		if !strings.Contains(StandupSystem, anchor) {
-			t.Errorf("StandupSystem missing required anchor %q", anchor)
-		}
+	// The prompt's whole contract is the fixed opening and closing lines and the
+	// period-specific "My <period> was about:" line; guard against accidental
+	// edits that would drop them.
+	tests := []struct {
+		period  string
+		opening string
+	}{
+		{"yesterday", "My yesterday was about:"},
+		{"Friday", "My Friday was about:"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.period, func(t *testing.T) {
+			sys := StandupSystem(tt.period)
+			for _, anchor := range []string{"Hi Team,", tt.opening, "Have a nice day!"} {
+				if !strings.Contains(sys, anchor) {
+					t.Errorf("StandupSystem(%q) missing required anchor %q", tt.period, anchor)
+				}
+			}
+		})
 	}
 }
