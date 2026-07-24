@@ -71,8 +71,9 @@ func TestMyProjectItems_FiltersAndPages(t *testing.T) {
 
 	client, requests := stubServer(t, page1, page2)
 	since := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	until := since.Add(24 * time.Hour)
 
-	digest, err := client.MyProjectItems(context.Background(), "acme", 7, since)
+	digest, err := client.MyProjectItems(context.Background(), "acme", 7, since, until)
 	if err != nil {
 		t.Fatalf("MyProjectItems error = %v", err)
 	}
@@ -104,6 +105,7 @@ func TestMyProjectItems_FiltersAndPages(t *testing.T) {
 
 func TestOrgCommits_FiltersNoiseAndStopsOnOldRepo(t *testing.T) {
 	since := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	until := since.Add(24 * time.Hour)
 	inRange := "2026-07-19T12:00:00Z"
 
 	// One page. First repo (pushed in range) has: a normal commit (kept), a
@@ -138,7 +140,7 @@ func TestOrgCommits_FiltersNoiseAndStopsOnOldRepo(t *testing.T) {
 
 	client, requests := stubServer(t, body)
 
-	digest, err := client.OrgCommits(context.Background(), "acme", since, []string{"dev@acme.com"})
+	digest, err := client.OrgCommits(context.Background(), "acme", since, until, []string{"dev@acme.com"})
 	if err != nil {
 		t.Fatalf("OrgCommits error = %v", err)
 	}
@@ -169,8 +171,9 @@ func TestOrgCommits_PassesEmailsAndSince(t *testing.T) {
 	}}}}`
 	client, requests := stubServer(t, body)
 	since := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	until := since.Add(24 * time.Hour)
 
-	if _, err := client.OrgCommits(context.Background(), "acme", since, []string{"a@x.com", "b@x.com"}); err != nil {
+	if _, err := client.OrgCommits(context.Background(), "acme", since, until, []string{"a@x.com", "b@x.com"}); err != nil {
 		t.Fatalf("OrgCommits error = %v", err)
 	}
 
@@ -181,5 +184,13 @@ func TestOrgCommits_PassesEmailsAndSince(t *testing.T) {
 	}
 	if vars["org"] != "acme" {
 		t.Errorf("org variable = %v, want acme", vars["org"])
+	}
+	// Both ends of the window reach the history query; the monthly report
+	// depends on `until` to stop at the end of its month.
+	if vars["since"] != "2026-07-19T00:00:00Z" {
+		t.Errorf("since variable = %v, want 2026-07-19T00:00:00Z", vars["since"])
+	}
+	if vars["until"] != "2026-07-20T00:00:00Z" {
+		t.Errorf("until variable = %v, want 2026-07-20T00:00:00Z", vars["until"])
 	}
 }

@@ -7,6 +7,8 @@ the project items and commits you touched since your last standup, plus the
 meetings you attended when Google Calendar is configured — summarizes it
 with Claude, prints the result, and (optionally) posts it to Slack.
 
+It also writes a **monthly report** on demand — see [Monthly report](#monthly-report).
+
 ## How it works
 
 1. Load config from the environment (`.env` in development).
@@ -77,10 +79,36 @@ which hides event titles.
 Events in the reporting window are included, except all-day events and ones you
 declined.
 
+## Monthly report
+
+`go run . monthly` writes a longer, written report for a whole month. It is
+CLI-only — nothing schedules it, and it never posts to Slack.
+
+```bash
+$ go run . monthly
+Year [2026]:
+Month (1-12) [6]:
+Collecting June 2026 activity...
+Writing the report...
+reports/2026-06.md
+```
+
+Both questions default to the previous month, so pressing enter twice right
+after a month ends does the obvious thing. The report covers the project items
+you touched and the commits you authored between the first instant of that month
+and the first instant of the next; it is summarized by Claude as markdown and
+saved to `reports/<year>-<month>.md`, overwriting any earlier run for the same
+month. `reports/` is gitignored.
+
+Calendar events are left out: a month of meetings is noise in a written report.
+Configuration is otherwise the same as the standup's, minus `SLACK_WEBHOOK_URL`
+and the Google variables.
+
 ## Commands
 
 ```bash
-go run .          # run the program
+go run .          # run the standup
+go run . monthly  # write a monthly report (interactive)
 go build ./...    # compile
 go test ./...     # run all tests
 ```

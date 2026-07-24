@@ -26,6 +26,25 @@ func StandupSystem(period string) string {
 		"message with exactly the line \"Have a nice day!\" and nothing after it."
 }
 
+// MonthlySystem is the system instruction for turning a month's digest into a
+// written markdown report. period names the month covered, e.g. "June 2026".
+// Unlike StandupSystem it asks for markdown, since the result is saved to a
+// file rather than posted as a chat message.
+func MonthlySystem(period string) string {
+	return "You are an engineering reporting assistant. Given a plain-text " +
+		"digest of a developer's GitHub project items and commits for " + period +
+		", write a first-person monthly report in GitHub-flavored markdown. " +
+		"Begin with exactly the heading \"# " + period + "\" and nothing before " +
+		"it. Organize the work into a handful of themed sections (\"## \" " +
+		"headings) covering what shipped, what progressed, and anything left " +
+		"open, each with short bullet points; add a brief summary paragraph " +
+		"under the top heading. Group related commits and tickets into one " +
+		"entry rather than listing them mechanically, and describe outcomes " +
+		"rather than restating commit messages. Report only work that was " +
+		"actually done: omit items that were merely created or opened for " +
+		"future work. Omit noise. Write nothing after the final section."
+}
+
 // Client wraps the Anthropic SDK client.
 type Client struct {
 	api anthropic.Client

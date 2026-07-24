@@ -60,8 +60,10 @@ type itemNode struct {
 }
 
 // MyProjectItems returns the items in org project #number that are assigned to
-// the PAT owner (the GraphQL "viewer") and were updated on or after since.
-func (c *Client) MyProjectItems(ctx context.Context, org string, number int, since time.Time) (*ProjectDigest, error) {
+// the PAT owner (the GraphQL "viewer") and were updated in [since, until).
+// The standup passes the current time as until; the monthly report passes the
+// end of the month it covers.
+func (c *Client) MyProjectItems(ctx context.Context, org string, number int, since, until time.Time) (*ProjectDigest, error) {
 	var q struct {
 		Viewer struct {
 			Login githubv4.String
@@ -96,7 +98,7 @@ func (c *Client) MyProjectItems(ctx context.Context, org string, number int, sin
 		digest.Title = string(q.Organization.ProjectV2.Title)
 
 		for _, node := range q.Organization.ProjectV2.Items.Nodes {
-			item, ok := node.toItem(digest.Login, since)
+			item, ok := node.toItem(digest.Login, since, until)
 			if ok {
 				digest.Items = append(digest.Items, item)
 			}
@@ -113,8 +115,9 @@ func (c *Client) MyProjectItems(ctx context.Context, org string, number int, sin
 }
 
 // toItem flattens a node into an Item, returning ok=false when the item should
-// be skipped (unreadable content, not assigned to login, or too old).
-func (n itemNode) toItem(login string, since time.Time) (Item, bool) {
+// be skipped (unreadable content, not assigned to login, or updated outside
+// [since, until)).
+func (n itemNode) toItem(login string, since, until time.Time) (Item, bool) {
 	typename := string(n.Content.Typename)
 
 	var (
@@ -151,7 +154,7 @@ func (n itemNode) toItem(login string, since time.Time) (Item, bool) {
 		return Item{}, false
 	}
 
-	if item.UpdatedAt.Before(since) {
+	if item.UpdatedAt.Before(since) || !item.UpdatedAt.Before(until) {
 		return Item{}, false
 	}
 	for _, a := range assignees.Nodes {

@@ -95,12 +95,13 @@ func draftNode(title, body, assignee string, updated time.Time) itemNode {
 
 func TestToItem(t *testing.T) {
 	since := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	until := since.Add(24 * time.Hour)
 	recent := since.Add(time.Hour)
 	old := since.Add(-time.Hour)
 
 	t.Run("issue assigned to viewer is kept", func(t *testing.T) {
 		n := issueNode("Issue", "Bug", "desc", "https://x/1", "OPEN", "octocat", recent)
-		item, ok := n.toItem("octocat", since)
+		item, ok := n.toItem("octocat", since, until)
 		if !ok {
 			t.Fatal("ok = false, want true")
 		}
@@ -112,7 +113,7 @@ func TestToItem(t *testing.T) {
 
 	t.Run("pull request reads PullRequest fragment", func(t *testing.T) {
 		n := issueNode("PullRequest", "Add feature", "b", "https://x/2", "MERGED", "octocat", recent)
-		item, ok := n.toItem("octocat", since)
+		item, ok := n.toItem("octocat", since, until)
 		if !ok || item.Type != "PullRequest" || item.Title != "Add feature" || item.State != "MERGED" {
 			t.Errorf("item = %+v, ok = %v; want PullRequest fields", item, ok)
 		}
@@ -120,7 +121,7 @@ func TestToItem(t *testing.T) {
 
 	t.Run("draft issue has DRAFT state and no url", func(t *testing.T) {
 		n := draftNode("Idea", "notes", "octocat", recent)
-		item, ok := n.toItem("octocat", since)
+		item, ok := n.toItem("octocat", since, until)
 		if !ok {
 			t.Fatal("ok = false, want true")
 		}
@@ -131,29 +132,45 @@ func TestToItem(t *testing.T) {
 
 	t.Run("not assigned to viewer is dropped", func(t *testing.T) {
 		n := issueNode("Issue", "Bug", "d", "https://x/1", "OPEN", "someone-else", recent)
-		if _, ok := n.toItem("octocat", since); ok {
+		if _, ok := n.toItem("octocat", since, until); ok {
 			t.Error("ok = true, want false for item assigned to another user")
 		}
 	})
 
 	t.Run("updated before since is dropped", func(t *testing.T) {
 		n := issueNode("Issue", "Bug", "d", "https://x/1", "OPEN", "octocat", old)
-		if _, ok := n.toItem("octocat", since); ok {
+		if _, ok := n.toItem("octocat", since, until); ok {
 			t.Error("ok = true, want false for stale item")
 		}
 	})
 
 	t.Run("updated exactly at since is kept", func(t *testing.T) {
 		n := issueNode("Issue", "Bug", "d", "https://x/1", "OPEN", "octocat", since)
-		if _, ok := n.toItem("octocat", since); !ok {
+		if _, ok := n.toItem("octocat", since, until); !ok {
 			t.Error("ok = false, want true when UpdatedAt == since")
+		}
+	})
+
+	// The window is half-open, so an item updated at `until` belongs to the next
+	// window (the monthly report relies on this to not double-count).
+	t.Run("updated exactly at until is dropped", func(t *testing.T) {
+		n := issueNode("Issue", "Bug", "d", "https://x/1", "OPEN", "octocat", until)
+		if _, ok := n.toItem("octocat", since, until); ok {
+			t.Error("ok = true, want false when UpdatedAt == until")
+		}
+	})
+
+	t.Run("updated after until is dropped", func(t *testing.T) {
+		n := issueNode("Issue", "Bug", "d", "https://x/1", "OPEN", "octocat", until.Add(time.Hour))
+		if _, ok := n.toItem("octocat", since, until); ok {
+			t.Error("ok = true, want false for item past the window")
 		}
 	})
 
 	t.Run("unknown typename is dropped", func(t *testing.T) {
 		var n itemNode
 		n.Content.Typename = "" // e.g. a redacted item the PAT can't see
-		if _, ok := n.toItem("octocat", since); ok {
+		if _, ok := n.toItem("octocat", since, until); ok {
 			t.Error("ok = true, want false for empty typename")
 		}
 	})

@@ -107,6 +107,23 @@ func TestAsk_EmptyContentReturnsEmptyString(t *testing.T) {
 	}
 }
 
+func TestMonthlySystem_Anchors(t *testing.T) {
+	// The monthly prompt's contract: it names the month it covers and asks for
+	// markdown opening on that month's heading.
+	sys := MonthlySystem("June 2026")
+	for _, anchor := range []string{"June 2026", "# June 2026", "markdown"} {
+		if !strings.Contains(sys, anchor) {
+			t.Errorf("MonthlySystem missing required anchor %q", anchor)
+		}
+	}
+	// It must not ask for the standup's chat framing.
+	for _, unwanted := range []string{"Hi Team,", "Have a nice day!"} {
+		if strings.Contains(sys, unwanted) {
+			t.Errorf("MonthlySystem should not carry standup framing %q", unwanted)
+		}
+	}
+}
+
 func TestStandupSystem_Anchors(t *testing.T) {
 	// The prompt's whole contract is the fixed opening and closing lines and the
 	// period-specific "My <period> was about:" line; guard against accidental

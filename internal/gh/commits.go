@@ -44,13 +44,15 @@ type commitNode struct {
 }
 
 // OrgCommits returns commits authored by any of the given emails, made on the
-// default branch of any repository in org since `since`. Filtering by
+// default branch of any repository in org in [since, until). Filtering by
 // author email (rather than by GitHub account) is deliberate: it matches
 // commits even when the author's git email is not linked to their account.
 //
 // Repositories are walked newest-pushed first, so the scan stops as soon as it
-// reaches a repository whose last push predates `since`.
-func (c *Client) OrgCommits(ctx context.Context, org string, since time.Time, emails []string) (*CommitDigest, error) {
+// reaches a repository whose last push predates `since`. Note that `until`
+// cannot shorten that walk: a repository pushed after the window may still hold
+// commits inside it, so only the history query is bounded on both ends.
+func (c *Client) OrgCommits(ctx context.Context, org string, since, until time.Time, emails []string) (*CommitDigest, error) {
 	gqlEmails := make([]githubv4.String, len(emails))
 	for i, e := range emails {
 		gqlEmails[i] = githubv4.String(e)
@@ -71,7 +73,7 @@ func (c *Client) OrgCommits(ctx context.Context, org string, since time.Time, em
 							Commit struct {
 								History struct {
 									Nodes []commitNode
-								} `graphql:"history(since:$since, first:100, author:{emails:$emails})"`
+								} `graphql:"history(since:$since, until:$until, first:100, author:{emails:$emails})"`
 							} `graphql:"... on Commit"`
 						}
 					}
@@ -83,6 +85,7 @@ func (c *Client) OrgCommits(ctx context.Context, org string, since time.Time, em
 	variables := map[string]any{
 		"org":    githubv4.String(org),
 		"since":  githubv4.GitTimestamp{Time: since},
+		"until":  githubv4.GitTimestamp{Time: until},
 		"emails": gqlEmails,
 		"cursor": (*githubv4.String)(nil),
 	}
