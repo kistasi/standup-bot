@@ -17,6 +17,7 @@ func setAll(t *testing.T) {
 	t.Setenv("SLACK_WEBHOOK_URL", "")
 	t.Setenv("GOOGLE_CREDENTIALS_JSON", "")
 	t.Setenv("GOOGLE_CALENDAR_ID", "")
+	t.Setenv("GOOGLE_DRIVE_FOLDER", "")
 }
 
 func TestLoad_Valid(t *testing.T) {
@@ -89,6 +90,85 @@ func TestLoad_CalendarEnabledWhenBothSet(t *testing.T) {
 	}
 	if cfg.GoogleCalendarID != "me@example.com" {
 		t.Errorf("GoogleCalendarID = %q, want %q", cfg.GoogleCalendarID, "me@example.com")
+	}
+}
+
+func TestLoad_DriveDisabledByDefault(t *testing.T) {
+	setAll(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DriveEnabled() {
+		t.Error("DriveEnabled() = true with no Drive vars set, want false")
+	}
+}
+
+func TestLoad_DriveEnabledWhenBothSet(t *testing.T) {
+	setAll(t)
+	t.Setenv("GOOGLE_CREDENTIALS_JSON", `{"type":"authorized_user"}`)
+	t.Setenv("GOOGLE_DRIVE_FOLDER", "  standup-bot  ")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.DriveEnabled() {
+		t.Error("DriveEnabled() = false with both Drive vars set, want true")
+	}
+	if cfg.GoogleDriveFolder != "standup-bot" {
+		t.Errorf("GoogleDriveFolder = %q, want trimmed %q", cfg.GoogleDriveFolder, "standup-bot")
+	}
+	// Drive alone must not switch the calendar on: the two share credentials
+	// but are independent features.
+	if cfg.CalendarEnabled() {
+		t.Error("CalendarEnabled() = true with only Drive configured, want false")
+	}
+}
+
+func TestLoad_CalendarAndDriveTogether(t *testing.T) {
+	setAll(t)
+	t.Setenv("GOOGLE_CREDENTIALS_JSON", `{"type":"authorized_user"}`)
+	t.Setenv("GOOGLE_CALENDAR_ID", "me@example.com")
+	t.Setenv("GOOGLE_DRIVE_FOLDER", "standup-bot")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.CalendarEnabled() || !cfg.DriveEnabled() {
+		t.Errorf("CalendarEnabled() = %v, DriveEnabled() = %v, want both true on one credential",
+			cfg.CalendarEnabled(), cfg.DriveEnabled())
+	}
+}
+
+func TestLoad_DriveFolderWithoutCredentialsErrors(t *testing.T) {
+	setAll(t)
+	t.Setenv("GOOGLE_DRIVE_FOLDER", "standup-bot")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want error when GOOGLE_DRIVE_FOLDER has no credentials")
+	}
+	if !strings.Contains(err.Error(), "GOOGLE_CREDENTIALS_JSON") {
+		t.Errorf("Load() error = %q, want it to name GOOGLE_CREDENTIALS_JSON", err)
+	}
+}
+
+func TestLoad_CredentialsWithoutConsumerErrors(t *testing.T) {
+	setAll(t)
+	t.Setenv("GOOGLE_CREDENTIALS_JSON", `{"type":"authorized_user"}`)
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want error when credentials are set but nothing uses them")
+	}
+	// The error should point at both things it could be for.
+	for _, want := range []string{"GOOGLE_CALENDAR_ID", "GOOGLE_DRIVE_FOLDER"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Load() error = %q, want it to name %s", err, want)
+		}
 	}
 }
 

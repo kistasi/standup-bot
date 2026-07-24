@@ -19,9 +19,10 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }} # optional: Google credentials JSON for calendar
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }} # optional: Google credentials JSON, shared by calendar and Drive
           # Non-secret config
           GH_ORG: ${{ vars.GH_ORG }}
           GH_PROJECT: ${{ vars.GH_PROJECT }}
           AUTHOR_EMAILS: ${{ vars.AUTHOR_EMAILS }}
-          GOOGLE_CALENDAR_ID: ${{ vars.GOOGLE_CALENDAR_ID }} # optional: paired with GOOGLE_CREDENTIALS_JSON
+          GOOGLE_CALENDAR_ID: ${{ vars.GOOGLE_CALENDAR_ID }} # optional: switches the calendar on, needs GOOGLE_CREDENTIALS_JSON
+          GOOGLE_DRIVE_FOLDER: ${{ vars.GOOGLE_DRIVE_FOLDER }} # optional: switches the Drive backup on, needs GOOGLE_CREDENTIALS_JSON (with the drive.file scope)

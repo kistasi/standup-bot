@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/kistasi/standup-bot/internal/claude"
 	"github.com/kistasi/standup-bot/internal/config"
 	"github.com/kistasi/standup-bot/internal/gcal"
+	"github.com/kistasi/standup-bot/internal/gdrive"
 	"github.com/kistasi/standup-bot/internal/gh"
 	"github.com/kistasi/standup-bot/internal/monthly"
 	"github.com/kistasi/standup-bot/internal/render"
@@ -87,7 +89,34 @@ func run() error {
 			return err
 		}
 	}
+
+	// Back the summary up to Drive when configured. Unlike the monthly report
+	// the standup writes no local file — this run happens on a scheduler with an
+	// ephemeral disk — so the text is uploaded straight from memory.
+	if cfg.DriveEnabled() {
+		link, err := backup(ctx, cfg, standupName(time.Now()), []byte(summary))
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stderr, "Backed up to", link)
+	}
 	return nil
+}
+
+// standupName is the Drive filename for a day's standup summary, e.g.
+// "2026-07-24-standup.md". Re-running on the same day overwrites that day's
+// file rather than piling up duplicates.
+func standupName(now time.Time) string {
+	return now.Format("2006-01-02") + "-standup.md"
+}
+
+// backup uploads one finished report to Drive, returning a link to it.
+func backup(ctx context.Context, cfg *config.Config, name string, content []byte) (string, error) {
+	dr, err := gdrive.New(ctx, []byte(cfg.GoogleCredentialsJSON), cfg.GoogleDriveFolder)
+	if err != nil {
+		return "", err
+	}
+	return dr.Upload(ctx, name, content)
 }
 
 // runMonthly asks for a month, gathers that month's GitHub activity, and writes
@@ -133,5 +162,18 @@ func runMonthly() error {
 		return err
 	}
 	fmt.Println(path)
+
+	// Back up the file just written, under the same name it has on disk.
+	if cfg.DriveEnabled() {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		link, err := backup(ctx, cfg, filepath.Base(path), content)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stderr, "Backed up to", link)
+	}
 	return nil
 }

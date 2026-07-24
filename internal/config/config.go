@@ -23,26 +23,41 @@ type Config struct {
 	// incoming webhook; when empty, it is only printed.
 	SlackWebhookURL string // SLACK_WEBHOOK_URL
 
-	// GoogleCredentialsJSON and GoogleCalendarID are optional and travel
-	// together: when both are set, calendar events feed the digest.
-	// GoogleCredentialsJSON is a Google credentials JSON — either authorized-user
-	// credentials (e.g. from `gcloud auth application-default login`, which reads
-	// the user's own calendar) or a service-account key. GoogleCalendarID is the
-	// calendar to read (the owner's email, or "primary").
+	// GoogleCredentialsJSON is the credential shared by both Google features
+	// below: a Google credentials JSON — either authorized-user credentials
+	// (e.g. from `gcloud auth application-default login`, which reads the user's
+	// own calendar and Drive) or a service-account key. It is optional, but
+	// required by whichever of the two features is switched on.
 	GoogleCredentialsJSON string // GOOGLE_CREDENTIALS_JSON
-	GoogleCalendarID      string // GOOGLE_CALENDAR_ID
+
+	// GoogleCalendarID switches calendar events into the digest: the calendar to
+	// read (the owner's email, or "primary").
+	GoogleCalendarID string // GOOGLE_CALENDAR_ID
+
+	// GoogleDriveFolder switches on the Drive backup: the name of the My Drive
+	// folder finished reports are uploaded to. It is a name rather than an ID
+	// because the drive.file scope only sees files the bot created, so the bot
+	// creates the folder itself — see internal/gdrive.
+	GoogleDriveFolder string // GOOGLE_DRIVE_FOLDER
 }
 
 // CalendarEnabled reports whether Google Calendar is configured. Load
-// guarantees both fields are set together, so testing one suffices.
+// guarantees the credentials accompany it, so testing the switch suffices.
 func (c *Config) CalendarEnabled() bool {
-	return c.GoogleCredentialsJSON != ""
+	return c.GoogleCalendarID != ""
+}
+
+// DriveEnabled reports whether the Drive backup is configured. Load guarantees
+// the credentials accompany it, so testing the switch suffices.
+func (c *Config) DriveEnabled() bool {
+	return c.GoogleDriveFolder != ""
 }
 
 // Load reads configuration from the environment. Every variable is required
-// except SLACK_WEBHOOK_URL and the GOOGLE_CREDENTIALS_JSON / GOOGLE_CALENDAR_ID
-// pair: there are no defaults or fallbacks, so Load returns an error naming any
-// required variable that is unset (or malformed, for typed values).
+// except SLACK_WEBHOOK_URL and the GOOGLE_* group: there are no defaults or
+// fallbacks, so Load returns an error naming any required variable that is
+// unset (or malformed, for typed values), and any half-configured Google
+// feature.
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
@@ -71,17 +86,19 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("AUTHOR_EMAILS %q: no emails", emailsRaw)
 	}
 
-	// Calendar is optional but the two variables travel together: one without
-	// the other is a misconfiguration, so name the missing half rather than
-	// silently disabling the feature.
+	// The two Google features are optional and independent, but both are driven
+	// by one credential. Half a configuration is a misconfiguration, so name the
+	// missing half rather than silently disabling the feature.
 	credsJSON := strings.TrimSpace(os.Getenv("GOOGLE_CREDENTIALS_JSON"))
 	calendarID := strings.TrimSpace(os.Getenv("GOOGLE_CALENDAR_ID"))
-	if (credsJSON == "") != (calendarID == "") {
-		set, missing := "GOOGLE_CREDENTIALS_JSON", "GOOGLE_CALENDAR_ID"
-		if credsJSON == "" {
-			set, missing = "GOOGLE_CALENDAR_ID", "GOOGLE_CREDENTIALS_JSON"
-		}
-		return nil, fmt.Errorf("%s is set but %s is not: set both to enable calendar, or neither", set, missing)
+	driveFolder := strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_FOLDER"))
+	switch {
+	case credsJSON == "" && calendarID != "":
+		return nil, fmt.Errorf("GOOGLE_CALENDAR_ID is set but GOOGLE_CREDENTIALS_JSON is not: set both to enable calendar, or neither")
+	case credsJSON == "" && driveFolder != "":
+		return nil, fmt.Errorf("GOOGLE_DRIVE_FOLDER is set but GOOGLE_CREDENTIALS_JSON is not: set both to enable the Drive backup, or neither")
+	case credsJSON != "" && calendarID == "" && driveFolder == "":
+		return nil, fmt.Errorf("GOOGLE_CREDENTIALS_JSON is set but neither GOOGLE_CALENDAR_ID nor GOOGLE_DRIVE_FOLDER is: set one to say what it is for, or unset it")
 	}
 
 	return &Config{
@@ -92,6 +109,7 @@ func Load() (*Config, error) {
 		SlackWebhookURL:       strings.TrimSpace(os.Getenv("SLACK_WEBHOOK_URL")),
 		GoogleCredentialsJSON: credsJSON,
 		GoogleCalendarID:      calendarID,
+		GoogleDriveFolder:     driveFolder,
 	}, nil
 }
 
