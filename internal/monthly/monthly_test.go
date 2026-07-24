@@ -117,7 +117,7 @@ func TestWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
-	if want := filepath.Join(dir, "2026-06.md"); path != want {
+	if want := filepath.Join(dir, "2026-06-monthly-report.md"); path != want {
 		t.Errorf("Write() path = %q, want %q", path, want)
 	}
 
@@ -139,7 +139,7 @@ func TestWrite_TrimsSurroundingBlankLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
-	if want := filepath.Join(dir, "2026-12.md"); path != want {
+	if want := filepath.Join(dir, "2026-12-monthly-report.md"); path != want {
 		t.Errorf("Write() path = %q, want %q (month zero-padded)", path, want)
 	}
 

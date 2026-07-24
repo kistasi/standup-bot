@@ -90,14 +90,14 @@ Year [2026]:
 Month (1-12) [6]:
 Collecting June 2026 activity...
 Writing the report...
-reports/2026-06.md
+reports/2026-06-monthly-report.md
 ```
 
 Both questions default to the previous month, so pressing enter twice right
 after a month ends does the obvious thing. The report covers the project items
 you touched and the commits you authored between the first instant of that month
 and the first instant of the next; it is summarized by Claude as markdown and
-saved to `reports/<year>-<month>.md`, overwriting any earlier run for the same
+saved to `reports/<year>-<month>-monthly-report.md`, overwriting any earlier run for the same
 month. `reports/` is gitignored.
 
 Calendar events are left out: a month of meetings is noise in a written report.

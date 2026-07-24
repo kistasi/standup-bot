@@ -82,13 +82,14 @@ func Label(year int, month time.Month) string {
 	return fmt.Sprintf("%s %d", month, year)
 }
 
-// Write saves the report under dir as <year>-<month>.md (e.g.
-// reports/2026-06.md), creating dir if needed, and returns the path written.
+// Write saves the report under dir as <year>-<month>-monthly-report.md (e.g.
+// reports/2026-06-monthly-report.md), creating dir if needed, and returns the
+// path written.
 func Write(dir string, year int, month time.Month, report string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating %s: %w", dir, err)
 	}
-	path := filepath.Join(dir, fmt.Sprintf("%04d-%02d.md", year, int(month)))
+	path := filepath.Join(dir, fmt.Sprintf("%04d-%02d-monthly-report.md", year, int(month)))
 
 	// The model occasionally pads its reply with a blank line either side; a
 	// markdown file should start on its heading and end in exactly one newline.
