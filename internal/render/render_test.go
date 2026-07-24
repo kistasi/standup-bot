@@ -55,10 +55,10 @@ func TestDigest_ProjectAndCommits(t *testing.T) {
 		},
 	}
 
-	got := Digest(project, commits, nil, 7, t1)
+	got := Digest(project, nil, commits, nil, 7, t1)
 
-	// Project item line with URL and indented body.
-	wantIssueLine := "[" + fmtTime(t1) + "]\tOPEN\tFix login bug\thttps://github.com/acme/app/issues/1"
+	// Project item line with type, URL and indented body.
+	wantIssueLine := "[" + fmtTime(t1) + "]\tIssue\tOPEN\tFix login bug\thttps://github.com/acme/app/issues/1"
 	if !strings.Contains(got, wantIssueLine) {
 		t.Errorf("missing issue line %q in:\n%s", wantIssueLine, got)
 	}
@@ -67,7 +67,7 @@ func TestDigest_ProjectAndCommits(t *testing.T) {
 	}
 
 	// Draft item uses "(draft)" placeholder for the empty URL and DRAFT state.
-	wantDraftLine := "[" + fmtTime(t2) + "]\tDRAFT\tSpike on caching\t(draft)"
+	wantDraftLine := "[" + fmtTime(t2) + "]\tDraftIssue\tDRAFT\tSpike on caching\t(draft)"
 	if !strings.Contains(got, wantDraftLine) {
 		t.Errorf("missing draft line %q in:\n%s", wantDraftLine, got)
 	}
@@ -99,11 +99,102 @@ func TestDigest_ProjectAndCommits(t *testing.T) {
 	}
 }
 
+func TestDigest_PullRequestItemTyped(t *testing.T) {
+	// Pull requests on the board must be distinguishable from tickets, so the
+	// monthly report can cite each kind separately.
+	project := &gh.ProjectDigest{
+		Login: "octocat",
+		Items: []gh.Item{
+			{
+				Type:      "PullRequest",
+				Title:     "Add retry logic",
+				URL:       "https://github.com/acme/app/pull/2",
+				State:     "MERGED",
+				UpdatedAt: t1,
+			},
+		},
+	}
+	got := Digest(project, nil, &gh.CommitDigest{}, nil, 7, t1)
+
+	want := "[" + fmtTime(t1) + "]\tPullRequest\tMERGED\tAdd retry logic\thttps://github.com/acme/app/pull/2"
+	if !strings.Contains(got, want) {
+		t.Errorf("missing pull request line %q in:\n%s", want, got)
+	}
+}
+
+func TestDigest_PullsDedupedAgainstBoard(t *testing.T) {
+	// A pull request already on the board belongs to the project section only;
+	// one that never made it there gets its own entry.
+	project := &gh.ProjectDigest{
+		Login: "octocat",
+		Items: []gh.Item{
+			{
+				Type:      "PullRequest",
+				Title:     "On the board",
+				URL:       "https://github.com/acme/app/pull/1",
+				State:     "MERGED",
+				UpdatedAt: t1,
+			},
+		},
+	}
+	pulls := &gh.PullRequestDigest{
+		Login: "octocat",
+		Org:   "acme",
+		PullRequests: []gh.PullRequest{
+			{
+				Repo:      "acme/app",
+				Title:     "On the board",
+				URL:       "https://github.com/acme/app/pull/1",
+				State:     "MERGED",
+				UpdatedAt: t1,
+			},
+			{
+				Repo:      "acme/tools",
+				Title:     "Off the board",
+				Body:      "Bumps the linter.",
+				URL:       "https://github.com/acme/tools/pull/9",
+				State:     "OPEN",
+				Draft:     true,
+				UpdatedAt: t2,
+			},
+		},
+	}
+
+	got := Digest(project, pulls, &gh.CommitDigest{}, nil, 7, t1)
+
+	wantLine := "[" + fmtTime(t2) + "]\tPullRequest\tacme/tools\tOPEN (draft)\tOff the board\thttps://github.com/acme/tools/pull/9"
+	if !strings.Contains(got, wantLine) {
+		t.Errorf("missing pull request line %q in:\n%s", wantLine, got)
+	}
+	if !strings.Contains(got, "    Bumps the linter.") {
+		t.Errorf("pull request body not indented in:\n%s", got)
+	}
+	// The board's own pull request appears once, in the project section.
+	if n := strings.Count(got, "https://github.com/acme/app/pull/1"); n != 1 {
+		t.Errorf("board pull request rendered %d times, want 1, in:\n%s", n, got)
+	}
+	wantFooter := "1 further pull request(s) by octocat in acme updated since " + fmtTime(t1) + ", not on the project board"
+	if !strings.Contains(got, wantFooter) {
+		t.Errorf("missing pull request footer %q in:\n%s", wantFooter, got)
+	}
+	// Pull requests sit between the project and commit sections.
+	if strings.Index(got, "Off the board") > strings.Index(got, "commit(s) by") {
+		t.Error("expected pull request section to render before commits")
+	}
+}
+
+func TestDigest_NoPullsSectionWhenNil(t *testing.T) {
+	got := Digest(&gh.ProjectDigest{}, nil, &gh.CommitDigest{}, nil, 1, t1)
+	if strings.Contains(got, "pull request(s)") {
+		t.Errorf("nil pulls should render no pull request section, got:\n%s", got)
+	}
+}
+
 func TestDigest_Empty(t *testing.T) {
 	project := &gh.ProjectDigest{Login: "octocat", Title: "Roadmap"}
 	commits := &gh.CommitDigest{Org: "acme", Emails: []string{"dev@acme.com"}}
 
-	got := Digest(project, commits, nil, 7, t1)
+	got := Digest(project, nil, commits, nil, 7, t1)
 
 	if !strings.Contains(got, "0 item(s) assigned to octocat") {
 		t.Errorf("empty project footer missing in:\n%s", got)
@@ -118,7 +209,7 @@ func TestDigest_MultipleEmailsJoined(t *testing.T) {
 		Org:    "acme",
 		Emails: []string{"a@acme.com", "b@acme.com"},
 	}
-	got := Digest(&gh.ProjectDigest{}, commits, nil, 1, t1)
+	got := Digest(&gh.ProjectDigest{}, nil, commits, nil, 1, t1)
 
 	if !strings.Contains(got, "by a@acme.com, b@acme.com in acme") {
 		t.Errorf("emails not joined with ', ' in:\n%s", got)
@@ -132,7 +223,7 @@ func TestDigest_Events(t *testing.T) {
 			{Summary: "Sprint planning", Start: t1, End: t2},
 		},
 	}
-	got := Digest(&gh.ProjectDigest{}, &gh.CommitDigest{}, events, 1, t1)
+	got := Digest(&gh.ProjectDigest{}, nil, &gh.CommitDigest{}, events, 1, t1)
 
 	wantLine := "[" + fmtTime(t1) + "]\t" + fmtTime(t2) + "\tSprint planning"
 	if !strings.Contains(got, wantLine) {
@@ -145,7 +236,7 @@ func TestDigest_Events(t *testing.T) {
 }
 
 func TestDigest_NoEventsSectionWhenNil(t *testing.T) {
-	got := Digest(&gh.ProjectDigest{}, &gh.CommitDigest{}, nil, 1, t1)
+	got := Digest(&gh.ProjectDigest{}, nil, &gh.CommitDigest{}, nil, 1, t1)
 	if strings.Contains(got, "calendar event(s)") {
 		t.Errorf("nil events should render no calendar section, got:\n%s", got)
 	}

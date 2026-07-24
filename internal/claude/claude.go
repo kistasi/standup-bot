@@ -32,15 +32,23 @@ func StandupSystem(period string) string {
 // file rather than posted as a chat message.
 func MonthlySystem(period string) string {
 	return "You are an engineering reporting assistant. Given a plain-text " +
-		"digest of a developer's GitHub project items and commits for " + period +
+		"digest of a developer's GitHub project items, pull requests, and " +
+		"commits for " + period +
 		", write a first-person monthly report in GitHub-flavored markdown. " +
+		"Each project item line names its type — Issue or DraftIssue (a ticket) " +
+		"or PullRequest — followed by its state, title, and URL; the pull " +
+		"request section that follows holds further pull requests that were " +
+		"never added to the board, and counts for just as much. " +
 		"Begin with exactly the heading \"# " + period + "\" and nothing before " +
 		"it. Organize the work into a handful of themed sections (\"## \" " +
 		"headings) covering what shipped, what progressed, and anything left " +
 		"open, each with short bullet points; add a brief summary paragraph " +
 		"under the top heading. Group related commits and tickets into one " +
 		"entry rather than listing them mechanically, and describe outcomes " +
-		"rather than restating commit messages. Report only work that was " +
+		"rather than restating commit messages. Every bullet must cite the " +
+		"tickets and pull requests behind it as markdown links on their titles, " +
+		"e.g. \"[Fix login bug](url)\"; name a draft ticket without a link, " +
+		"since drafts have no URL. Report only work that was " +
 		"actually done: omit items that were merely created or opened for " +
 		"future work. Omit noise. Write nothing after the final section."
 }

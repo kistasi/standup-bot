@@ -74,7 +74,7 @@ func run() error {
 		}
 	}
 
-	digest := render.Digest(project, commits, events, cfg.ProjectNumber, since)
+	digest := render.Digest(project, nil, commits, events, cfg.ProjectNumber, since)
 
 	summary, err := claude.New().Ask(ctx, claude.StandupSystem(cfg.PeriodLabel()), digest)
 	if err != nil {
@@ -144,12 +144,20 @@ func runMonthly() error {
 		return err
 	}
 
+	// Unlike the standup, the monthly report also covers pull requests that were
+	// never added to the project board; render drops the ones already listed
+	// above.
+	pulls, err := client.MyPullRequests(ctx, cfg.Org, since, until)
+	if err != nil {
+		return err
+	}
+
 	commits, err := client.OrgCommits(ctx, cfg.Org, since, until, cfg.AuthorEmails)
 	if err != nil {
 		return err
 	}
 
-	digest := render.Digest(project, commits, nil, cfg.ProjectNumber, since)
+	digest := render.Digest(project, pulls, commits, nil, cfg.ProjectNumber, since)
 
 	fmt.Fprintln(os.Stderr, "Writing the report...")
 	report, err := claude.New().Ask(ctx, claude.MonthlySystem(label), digest)

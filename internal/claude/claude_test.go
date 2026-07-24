@@ -111,7 +111,12 @@ func TestMonthlySystem_Anchors(t *testing.T) {
 	// The monthly prompt's contract: it names the month it covers and asks for
 	// markdown opening on that month's heading.
 	sys := MonthlySystem("June 2026")
-	for _, anchor := range []string{"June 2026", "# June 2026", "markdown"} {
+	// It also has to explain the digest's item types and demand that bullets
+	// cite the tickets and pull requests behind them.
+	for _, anchor := range []string{
+		"June 2026", "# June 2026", "markdown",
+		"PullRequest", "DraftIssue", "tickets and pull requests", "markdown links",
+	} {
 		if !strings.Contains(sys, anchor) {
 			t.Errorf("MonthlySystem missing required anchor %q", anchor)
 		}

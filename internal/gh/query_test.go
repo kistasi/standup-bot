@@ -194,3 +194,86 @@ func TestOrgCommits_PassesEmailsAndSince(t *testing.T) {
 		t.Errorf("until variable = %v, want 2026-07-20T00:00:00Z", vars["until"])
 	}
 }
+
+func TestMyPullRequests_FiltersAndStopsOnOldPull(t *testing.T) {
+	since := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	until := since.Add(24 * time.Hour)
+
+	// One page holding, in update order: a pull request in the org and window
+	// (kept), one in another org (dropped), a release pull request (dropped),
+	// one updated at `until` (dropped, exclusive end), then one updated before
+	// `since` — which stops the walk, so the cursor is never followed.
+	body := `{"data":{"viewer":{
+		"login":"octocat",
+		"pullRequests":{
+			"pageInfo":{"hasNextPage":true,"endCursor":"NEXT"},
+			"nodes":[
+				{"number":9,"title":"Bump linter","body":"desc","url":"https://x/9","state":"OPEN","isDraft":true,"updatedAt":"2026-07-19T12:00:00Z","repository":{"nameWithOwner":"acme/tools","owner":{"login":"acme"}}},
+				{"number":8,"title":"Elsewhere","body":"","url":"https://x/8","state":"OPEN","isDraft":false,"updatedAt":"2026-07-19T11:00:00Z","repository":{"nameWithOwner":"other/app","owner":{"login":"other"}}},
+				{"number":7,"title":"Release 2026-07-19","body":"","url":"https://x/7","state":"MERGED","isDraft":false,"updatedAt":"2026-07-19T10:00:00Z","repository":{"nameWithOwner":"acme/app","owner":{"login":"acme"}}},
+				{"number":6,"title":"Next month","body":"","url":"https://x/6","state":"OPEN","isDraft":false,"updatedAt":"2026-07-20T00:00:00Z","repository":{"nameWithOwner":"acme/app","owner":{"login":"acme"}}},
+				{"number":5,"title":"Too old","body":"","url":"https://x/5","state":"MERGED","isDraft":false,"updatedAt":"2026-07-18T23:00:00Z","repository":{"nameWithOwner":"acme/app","owner":{"login":"acme"}}}
+			]
+		}
+	}}}`
+
+	client, requests := stubServer(t, body)
+
+	digest, err := client.MyPullRequests(context.Background(), "acme", since, until)
+	if err != nil {
+		t.Fatalf("MyPullRequests error = %v", err)
+	}
+
+	if digest.Login != "octocat" || digest.Org != "acme" {
+		t.Errorf("digest = %+v, want login octocat in org acme", digest)
+	}
+	if len(digest.PullRequests) != 1 {
+		t.Fatalf("got %d pull requests, want 1: %+v", len(digest.PullRequests), digest.PullRequests)
+	}
+	pr := digest.PullRequests[0]
+	if pr.Number != 9 || pr.Repo != "acme/tools" || pr.Title != "Bump linter" ||
+		pr.Body != "desc" || pr.URL != "https://x/9" || pr.State != "OPEN" || !pr.Draft {
+		t.Errorf("pull request = %+v, unexpected fields", pr)
+	}
+
+	// The walk stopped at the out-of-window pull request, so despite
+	// hasNextPage=true it made exactly one query.
+	if len(*requests) != 1 {
+		t.Errorf("made %d queries, want 1 (should stop at the old pull request)", len(*requests))
+	}
+}
+
+func TestMyPullRequests_Pages(t *testing.T) {
+	page1 := `{"data":{"viewer":{
+		"login":"octocat",
+		"pullRequests":{
+			"pageInfo":{"hasNextPage":true,"endCursor":"CUR1"},
+			"nodes":[
+				{"number":9,"title":"First","body":"","url":"https://x/9","state":"OPEN","isDraft":false,"updatedAt":"2026-07-19T12:00:00Z","repository":{"nameWithOwner":"acme/app","owner":{"login":"acme"}}}
+			]
+		}
+	}}}`
+	page2 := `{"data":{"viewer":{
+		"login":"octocat",
+		"pullRequests":{
+			"pageInfo":{"hasNextPage":false,"endCursor":""},
+			"nodes":[
+				{"number":8,"title":"Second","body":"","url":"https://x/8","state":"MERGED","isDraft":false,"updatedAt":"2026-07-19T09:00:00Z","repository":{"nameWithOwner":"acme/app","owner":{"login":"acme"}}}
+			]
+		}
+	}}}`
+
+	client, requests := stubServer(t, page1, page2)
+	since := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+
+	digest, err := client.MyPullRequests(context.Background(), "acme", since, since.Add(24*time.Hour))
+	if err != nil {
+		t.Fatalf("MyPullRequests error = %v", err)
+	}
+	if len(digest.PullRequests) != 2 {
+		t.Fatalf("got %d pull requests, want 2 across both pages", len(digest.PullRequests))
+	}
+	if vars, _ := (*requests)[1]["variables"].(map[string]any); vars["cursor"] != "CUR1" {
+		t.Errorf("second query cursor = %v, want CUR1", vars["cursor"])
+	}
+}
