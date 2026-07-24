@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kistasi/standup-bot/internal/config"
 )
 
 // Only the rejection branch is exercised here: the other two reach out to
@@ -28,5 +31,28 @@ func TestStandupName(t *testing.T) {
 	later := now.Add(6 * time.Hour)
 	if standupName(later) != standupName(now) {
 		t.Error("standupName() changed within the same day, want one file per day")
+	}
+}
+
+// Both commands call backup unconditionally, so the "Drive not configured"
+// case has to return without building a client — there are no credentials to
+// build one from.
+func TestBackup_NoOpWhenDriveDisabled(t *testing.T) {
+	cfg := &config.Config{} // no GoogleDriveFolder, no credentials
+	if err := backup(context.Background(), cfg, "2026-07-24-standup.md", []byte("report")); err != nil {
+		t.Errorf("backup() error = %v, want nil when the Drive backup is off", err)
+	}
+}
+
+// With Drive switched on but the credential unusable, the failure is surfaced
+// rather than swallowed: a backup that silently did nothing would be worse
+// than a failed run.
+func TestBackup_ReportsBadCredentials(t *testing.T) {
+	cfg := &config.Config{
+		GoogleDriveFolder:     "standup-bot",
+		GoogleCredentialsJSON: "not json",
+	}
+	if err := backup(context.Background(), cfg, "2026-07-24-standup.md", []byte("report")); err == nil {
+		t.Error("backup() error = nil, want the malformed credential surfaced")
 	}
 }

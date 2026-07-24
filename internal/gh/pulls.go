@@ -57,11 +57,8 @@ func (c *Client) MyPullRequests(ctx context.Context, org string, since, until ti
 		Viewer struct {
 			Login        githubv4.String
 			PullRequests struct {
-				PageInfo struct {
-					HasNextPage githubv4.Boolean
-					EndCursor   githubv4.String
-				}
-				Nodes []pullNode
+				PageInfo pageInfo
+				Nodes    []pullNode
 			} `graphql:"pullRequests(first:50, after:$cursor, orderBy:{field:UPDATED_AT, direction:DESC})"`
 		}
 	}

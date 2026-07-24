@@ -47,7 +47,11 @@ func run() error {
 
 	ctx := context.Background()
 	client := gh.New(cfg.GitHubToken)
-	since, until := cfg.Since(), time.Now()
+
+	// One clock for the whole run: the window's end and the backup's filename
+	// must agree even if the run straddles midnight.
+	now := time.Now()
+	since, until := cfg.Since(), now
 
 	project, err := client.MyProjectItems(ctx, cfg.Org, cfg.ProjectNumber, since, until)
 	if err != nil {
@@ -93,14 +97,7 @@ func run() error {
 	// Back the summary up to Drive when configured. Unlike the monthly report
 	// the standup writes no local file — this run happens on a scheduler with an
 	// ephemeral disk — so the text is uploaded straight from memory.
-	if cfg.DriveEnabled() {
-		link, err := backup(ctx, cfg, standupName(time.Now()), []byte(summary))
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(os.Stderr, "Backed up to", link)
-	}
-	return nil
+	return backup(ctx, cfg, standupName(now), []byte(summary))
 }
 
 // standupName is the Drive filename for a day's standup summary, e.g.
@@ -110,13 +107,23 @@ func standupName(now time.Time) string {
 	return now.Format("2006-01-02") + "-standup.md"
 }
 
-// backup uploads one finished report to Drive, returning a link to it.
-func backup(ctx context.Context, cfg *config.Config, name string, content []byte) (string, error) {
+// backup uploads one finished report to Drive and reports where it landed. It
+// is a no-op when the Drive backup is not configured, so both commands can call
+// it unconditionally.
+func backup(ctx context.Context, cfg *config.Config, name string, content []byte) error {
+	if !cfg.DriveEnabled() {
+		return nil
+	}
 	dr, err := gdrive.New(ctx, []byte(cfg.GoogleCredentialsJSON), cfg.GoogleDriveFolder)
 	if err != nil {
-		return "", err
+		return err
 	}
-	return dr.Upload(ctx, name, content)
+	link, err := dr.Upload(ctx, name, content)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "Backed up to", link)
+	return nil
 }
 
 // runMonthly asks for a month, gathers that month's GitHub activity, and writes
@@ -172,16 +179,12 @@ func runMonthly() error {
 	fmt.Println(path)
 
 	// Back up the file just written, under the same name it has on disk.
-	if cfg.DriveEnabled() {
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		link, err := backup(ctx, cfg, filepath.Base(path), content)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(os.Stderr, "Backed up to", link)
+	if !cfg.DriveEnabled() {
+		return nil
 	}
-	return nil
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return backup(ctx, cfg, filepath.Base(path), content)
 }

@@ -43,6 +43,18 @@ type commitNode struct {
 	} `graphql:"parents(first:0)"`
 }
 
+// pageInfo is the shared cursor selection for a paged connection.
+type pageInfo struct {
+	HasNextPage githubv4.Boolean
+	EndCursor   githubv4.String
+}
+
+// historyPage is one page of a repository's default-branch commit history.
+type historyPage struct {
+	PageInfo pageInfo
+	Nodes    []commitNode
+}
+
 // OrgCommits returns commits authored by any of the given emails, made on the
 // default branch of any repository in org in [since, until). Filtering by
 // author email (rather than by GitHub account) is deliberate: it matches
@@ -61,19 +73,14 @@ func (c *Client) OrgCommits(ctx context.Context, org string, since, until time.T
 	var q struct {
 		Organization struct {
 			Repositories struct {
-				PageInfo struct {
-					HasNextPage githubv4.Boolean
-					EndCursor   githubv4.String
-				}
-				Nodes []struct {
+				PageInfo pageInfo
+				Nodes    []struct {
 					NameWithOwner    githubv4.String
 					PushedAt         githubv4.DateTime
 					DefaultBranchRef struct {
 						Target struct {
 							Commit struct {
-								History struct {
-									Nodes []commitNode
-								} `graphql:"history(since:$since, until:$until, first:100, author:{emails:$emails})"`
+								History historyPage `graphql:"history(since:$since, until:$until, first:100, author:{emails:$emails})"`
 							} `graphql:"... on Commit"`
 						}
 					}
@@ -105,20 +112,17 @@ func (c *Client) OrgCommits(ctx context.Context, org string, since, until time.T
 				break
 			}
 			name := string(repo.NameWithOwner)
-			for _, node := range repo.DefaultBranchRef.Target.Commit.History.Nodes {
-				// Skip release automation and merge commits (2+ parents):
-				// both are noise in a standup.
-				if isReleaseCommit(string(node.MessageHeadline)) || node.Parents.TotalCount > 1 {
-					continue
+			history := repo.DefaultBranchRef.Target.Commit.History
+			digest.Commits = appendCommits(digest.Commits, name, history.Nodes)
+
+			// A repository with more in-window commits than fit on one page is
+			// read to the end before moving on, so nothing is dropped silently.
+			if history.PageInfo.HasNextPage {
+				rest, err := c.repoCommits(ctx, name, since, until, gqlEmails, history.PageInfo.EndCursor)
+				if err != nil {
+					return nil, err
 				}
-				digest.Commits = append(digest.Commits, Commit{
-					Repo:          name,
-					OID:           string(node.OID),
-					Message:       string(node.MessageHeadline),
-					Body:          string(node.MessageBody),
-					URL:           string(node.URL),
-					CommittedDate: node.CommittedDate.Time,
-				})
+				digest.Commits = append(digest.Commits, rest...)
 			}
 		}
 
@@ -130,4 +134,66 @@ func (c *Client) OrgCommits(ctx context.Context, org string, since, until time.T
 	}
 
 	return digest, nil
+}
+
+// repoCommits reads the remaining pages of one repository's history, starting
+// after cursor. nameWithOwner is "owner/name", as it appears on the digest.
+func (c *Client) repoCommits(ctx context.Context, nameWithOwner string, since, until time.Time, emails []githubv4.String, cursor githubv4.String) ([]Commit, error) {
+	owner, name, ok := strings.Cut(nameWithOwner, "/")
+	if !ok {
+		return nil, nil
+	}
+
+	var q struct {
+		Repository struct {
+			DefaultBranchRef struct {
+				Target struct {
+					Commit struct {
+						History historyPage `graphql:"history(since:$since, until:$until, first:100, after:$cursor, author:{emails:$emails})"`
+					} `graphql:"... on Commit"`
+				}
+			}
+		} `graphql:"repository(owner:$owner, name:$name)"`
+	}
+
+	variables := map[string]any{
+		"owner":  githubv4.String(owner),
+		"name":   githubv4.String(name),
+		"since":  githubv4.GitTimestamp{Time: since},
+		"until":  githubv4.GitTimestamp{Time: until},
+		"emails": emails,
+		"cursor": githubv4.NewString(cursor),
+	}
+
+	var commits []Commit
+	for {
+		if err := c.query(ctx, &q, variables); err != nil {
+			return nil, err
+		}
+		history := q.Repository.DefaultBranchRef.Target.Commit.History
+		commits = appendCommits(commits, nameWithOwner, history.Nodes)
+		if !history.PageInfo.HasNextPage {
+			return commits, nil
+		}
+		variables["cursor"] = githubv4.NewString(history.PageInfo.EndCursor)
+	}
+}
+
+// appendCommits flattens one page of history onto commits, skipping release
+// automation and merge commits (2+ parents): both are noise in a standup.
+func appendCommits(commits []Commit, repo string, nodes []commitNode) []Commit {
+	for _, node := range nodes {
+		if isReleaseCommit(string(node.MessageHeadline)) || node.Parents.TotalCount > 1 {
+			continue
+		}
+		commits = append(commits, Commit{
+			Repo:          repo,
+			OID:           string(node.OID),
+			Message:       string(node.MessageHeadline),
+			Body:          string(node.MessageBody),
+			URL:           string(node.URL),
+			CommittedDate: node.CommittedDate.Time,
+		})
+	}
+	return commits
 }

@@ -195,3 +195,12 @@ func TestEscape(t *testing.T) {
 		}
 	}
 }
+
+// Mirrors internal/gcal: a credentials JSON that does not parse must fail at
+// construction, where the error still names the credential, rather than at the
+// first upload.
+func TestNew_RejectsMalformedCredentials(t *testing.T) {
+	if _, err := New(context.Background(), []byte("not json"), "standup-bot"); err == nil {
+		t.Fatal("New() error = nil, want an error for malformed credentials JSON")
+	}
+}

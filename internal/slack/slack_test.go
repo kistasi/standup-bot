@@ -127,3 +127,24 @@ func TestPost_ContextCanceled(t *testing.T) {
 		t.Fatal("Post() error = nil, want error for canceled context")
 	}
 }
+
+// The conversion is line- and span-agnostic: a whole standup message goes
+// through it, and Slack renders anything left unconverted with its asterisks
+// showing.
+func TestToMrkdwn(t *testing.T) {
+	tests := []struct{ name, in, want string }{
+		{"plain text is untouched", "Hi Team,", "Hi Team,"},
+		{"two spans on one line", "**a** and **b**", "*a* and *b*"},
+		{"spans across lines", "- **one**\n- **two**", "- *one*\n- *two*"},
+		{"a span is not joined across lines", "**one\ntwo**", "**one\ntwo**"},
+		{"code spans are left alone", "bumped to `800ms`", "bumped to `800ms`"},
+		{"unpaired asterisks are left alone", "2 ** 8 is 256", "2 ** 8 is 256"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := toMrkdwn(tt.in); got != tt.want {
+				t.Errorf("toMrkdwn(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}

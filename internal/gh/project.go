@@ -72,11 +72,8 @@ func (c *Client) MyProjectItems(ctx context.Context, org string, number int, sin
 			ProjectV2 struct {
 				Title githubv4.String
 				Items struct {
-					PageInfo struct {
-						HasNextPage githubv4.Boolean
-						EndCursor   githubv4.String
-					}
-					Nodes []itemNode
+					PageInfo pageInfo
+					Nodes    []itemNode
 				} `graphql:"items(first:100, after:$cursor)"`
 			} `graphql:"projectV2(number:$number)"`
 		} `graphql:"organization(login:$org)"`

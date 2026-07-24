@@ -195,6 +195,118 @@ func TestOrgCommits_PassesEmailsAndSince(t *testing.T) {
 	}
 }
 
+// A repository can hold more in-window commits than fit on one history page —
+// a month of a busy repo, say. The rest must be followed up per repository
+// rather than silently truncated at the first page.
+func TestOrgCommits_PagesRepositoryHistory(t *testing.T) {
+	since := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	until := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	at := "2026-07-19T12:00:00Z"
+
+	// The org page reports the repo's history as having a next page.
+	orgPage := `{"data":{"organization":{"repositories":{
+		"pageInfo":{"hasNextPage":false,"endCursor":""},
+		"nodes":[{
+			"nameWithOwner":"acme/app",
+			"pushedAt":"2026-07-31T13:00:00Z",
+			"defaultBranchRef":{"target":{
+				"history":{
+					"pageInfo":{"hasNextPage":true,"endCursor":"H1"},
+					"nodes":[{"oid":"c1","messageHeadline":"First","messageBody":"","url":"https://x/c1","committedDate":"` + at + `","parents":{"totalCount":1}}]
+				}
+			}}
+		}]
+	}}}}`
+	// Follow-up page 1 for that repo: one kept commit and one release commit.
+	repoPage1 := `{"data":{"repository":{"defaultBranchRef":{"target":{
+		"history":{
+			"pageInfo":{"hasNextPage":true,"endCursor":"H2"},
+			"nodes":[
+				{"oid":"c2","messageHeadline":"Second","messageBody":"","url":"https://x/c2","committedDate":"` + at + `","parents":{"totalCount":1}},
+				{"oid":"c3","messageHeadline":"Release 2026-07-19","messageBody":"","url":"https://x/c3","committedDate":"` + at + `","parents":{"totalCount":1}}
+			]
+		}
+	}}}}}`
+	repoPage2 := `{"data":{"repository":{"defaultBranchRef":{"target":{
+		"history":{
+			"pageInfo":{"hasNextPage":false,"endCursor":""},
+			"nodes":[{"oid":"c4","messageHeadline":"Third","messageBody":"","url":"https://x/c4","committedDate":"` + at + `","parents":{"totalCount":1}}]
+		}
+	}}}}}`
+
+	client, requests := stubServer(t, orgPage, repoPage1, repoPage2)
+
+	digest, err := client.OrgCommits(context.Background(), "acme", since, until, []string{"dev@acme.com"})
+	if err != nil {
+		t.Fatalf("OrgCommits error = %v", err)
+	}
+
+	var got []string
+	for _, c := range digest.Commits {
+		if c.Repo != "acme/app" {
+			t.Errorf("commit %q has repo %q, want acme/app", c.Message, c.Repo)
+		}
+		got = append(got, c.Message)
+	}
+	want := []string{"First", "Second", "Third"}
+	if len(got) != len(want) {
+		t.Fatalf("got commits %v, want %v (release dropped, no page truncated)", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got commits %v, want %v", got, want)
+		}
+	}
+
+	if len(*requests) != 3 {
+		t.Fatalf("made %d queries, want 3 (org page + 2 history pages)", len(*requests))
+	}
+	// The follow-up queries address the repository by owner and name, split out
+	// of nameWithOwner, and carry the previous page's cursor.
+	vars, _ := (*requests)[1]["variables"].(map[string]any)
+	if vars["owner"] != "acme" || vars["name"] != "app" {
+		t.Errorf("follow-up owner/name = %v/%v, want acme/app", vars["owner"], vars["name"])
+	}
+	if vars["cursor"] != "H1" {
+		t.Errorf("first follow-up cursor = %v, want H1", vars["cursor"])
+	}
+	vars, _ = (*requests)[2]["variables"].(map[string]any)
+	if vars["cursor"] != "H2" {
+		t.Errorf("second follow-up cursor = %v, want H2", vars["cursor"])
+	}
+}
+
+// A history page that reports no next page must not trigger a follow-up query.
+func TestOrgCommits_NoFollowUpWhenHistoryFitsOnePage(t *testing.T) {
+	body := `{"data":{"organization":{"repositories":{
+		"pageInfo":{"hasNextPage":false,"endCursor":""},
+		"nodes":[{
+			"nameWithOwner":"acme/app",
+			"pushedAt":"2026-07-19T13:00:00Z",
+			"defaultBranchRef":{"target":{
+				"history":{
+					"pageInfo":{"hasNextPage":false,"endCursor":""},
+					"nodes":[{"oid":"c1","messageHeadline":"Only","messageBody":"","url":"https://x/c1","committedDate":"2026-07-19T12:00:00Z","parents":{"totalCount":1}}]
+				}
+			}}
+		}]
+	}}}}`
+
+	client, requests := stubServer(t, body)
+	since := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+
+	digest, err := client.OrgCommits(context.Background(), "acme", since, since.Add(24*time.Hour), []string{"dev@acme.com"})
+	if err != nil {
+		t.Fatalf("OrgCommits error = %v", err)
+	}
+	if len(digest.Commits) != 1 {
+		t.Errorf("got %d commits, want 1", len(digest.Commits))
+	}
+	if len(*requests) != 1 {
+		t.Errorf("made %d queries, want 1 (history fit on one page)", len(*requests))
+	}
+}
+
 func TestMyPullRequests_FiltersAndStopsOnOldPull(t *testing.T) {
 	since := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
 	until := since.Add(24 * time.Hour)
