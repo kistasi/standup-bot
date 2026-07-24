@@ -19,9 +19,24 @@ type Config struct {
 	ProjectNumber int      // GH_PROJECT
 	AuthorEmails  []string // AUTHOR_EMAILS
 
-	// SlackWebhookURL is the only optional variable: when set, the summary is
-	// posted to the Slack incoming webhook; when empty, it is only printed.
+	// SlackWebhookURL is optional: when set, the summary is posted to the Slack
+	// incoming webhook; when empty, it is only printed.
 	SlackWebhookURL string // SLACK_WEBHOOK_URL
+
+	// GoogleCredentialsJSON and GoogleCalendarID are optional and travel
+	// together: when both are set, calendar events feed the digest.
+	// GoogleCredentialsJSON is a Google credentials JSON — either authorized-user
+	// credentials (e.g. from `gcloud auth application-default login`, which reads
+	// the user's own calendar) or a service-account key. GoogleCalendarID is the
+	// calendar to read (the owner's email, or "primary").
+	GoogleCredentialsJSON string // GOOGLE_CREDENTIALS_JSON
+	GoogleCalendarID      string // GOOGLE_CALENDAR_ID
+}
+
+// CalendarEnabled reports whether Google Calendar is configured. Load
+// guarantees both fields are set together, so testing one suffices.
+func (c *Config) CalendarEnabled() bool {
+	return c.GoogleCredentialsJSON != ""
 }
 
 // Load reads configuration from the environment. Every variable is required
@@ -56,12 +71,27 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("AUTHOR_EMAILS %q: no emails", emailsRaw)
 	}
 
+	// Calendar is optional but the two variables travel together: one without
+	// the other is a misconfiguration, so name the missing half rather than
+	// silently disabling the feature.
+	credsJSON := strings.TrimSpace(os.Getenv("GOOGLE_CREDENTIALS_JSON"))
+	calendarID := strings.TrimSpace(os.Getenv("GOOGLE_CALENDAR_ID"))
+	if (credsJSON == "") != (calendarID == "") {
+		set, missing := "GOOGLE_CREDENTIALS_JSON", "GOOGLE_CALENDAR_ID"
+		if credsJSON == "" {
+			set, missing = "GOOGLE_CALENDAR_ID", "GOOGLE_CREDENTIALS_JSON"
+		}
+		return nil, fmt.Errorf("%s is set but %s is not: set both to enable calendar, or neither", set, missing)
+	}
+
 	return &Config{
-		GitHubToken:     token,
-		Org:             org,
-		ProjectNumber:   project,
-		AuthorEmails:    emails,
-		SlackWebhookURL: strings.TrimSpace(os.Getenv("SLACK_WEBHOOK_URL")),
+		GitHubToken:           token,
+		Org:                   org,
+		ProjectNumber:         project,
+		AuthorEmails:          emails,
+		SlackWebhookURL:       strings.TrimSpace(os.Getenv("SLACK_WEBHOOK_URL")),
+		GoogleCredentialsJSON: credsJSON,
+		GoogleCalendarID:      calendarID,
 	}, nil
 }
 

@@ -14,7 +14,8 @@ import (
 // reaches back across the weekend.
 func StandupSystem(period string) string {
 	return "You are a standup assistant. Given a plain-text digest " +
-		"of a developer's GitHub project items and commits, write " +
+		"of a developer's GitHub project items, commits, and calendar " +
+		"events (meetings attended), write " +
 		"a concise first-person standup update. Begin the message with exactly the " +
 		"lines \"Hi Team,\" and \"My " + period + " was about:\" separated by a blank " +
 		"line (two newlines after \"Hi Team,\") and nothing before it. Group " +

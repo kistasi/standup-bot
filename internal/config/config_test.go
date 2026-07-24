@@ -15,6 +15,8 @@ func setAll(t *testing.T) {
 	t.Setenv("GH_PROJECT", "42")
 	t.Setenv("AUTHOR_EMAILS", "a@example.com, b@example.com")
 	t.Setenv("SLACK_WEBHOOK_URL", "")
+	t.Setenv("GOOGLE_CREDENTIALS_JSON", "")
+	t.Setenv("GOOGLE_CALENDAR_ID", "")
 }
 
 func TestLoad_Valid(t *testing.T) {
@@ -58,6 +60,57 @@ func TestLoad_SlackOptional(t *testing.T) {
 	}
 	if cfg.SlackWebhookURL != "https://hooks.slack.com/x" {
 		t.Errorf("SlackWebhookURL = %q, want trimmed URL", cfg.SlackWebhookURL)
+	}
+}
+
+func TestLoad_CalendarDisabledByDefault(t *testing.T) {
+	setAll(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.CalendarEnabled() {
+		t.Error("CalendarEnabled() = true with no calendar vars set, want false")
+	}
+}
+
+func TestLoad_CalendarEnabledWhenBothSet(t *testing.T) {
+	setAll(t)
+	t.Setenv("GOOGLE_CREDENTIALS_JSON", `{"type":"authorized_user"}`)
+	t.Setenv("GOOGLE_CALENDAR_ID", "me@example.com")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.CalendarEnabled() {
+		t.Error("CalendarEnabled() = false with both calendar vars set, want true")
+	}
+	if cfg.GoogleCalendarID != "me@example.com" {
+		t.Errorf("GoogleCalendarID = %q, want %q", cfg.GoogleCalendarID, "me@example.com")
+	}
+}
+
+func TestLoad_CalendarPartialErrors(t *testing.T) {
+	for _, set := range []string{"GOOGLE_CREDENTIALS_JSON", "GOOGLE_CALENDAR_ID"} {
+		t.Run("only "+set, func(t *testing.T) {
+			setAll(t)
+			t.Setenv(set, "value")
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("Load() error = nil, want error when only %s is set", set)
+			}
+			// The error should name the missing counterpart.
+			missing := "GOOGLE_CALENDAR_ID"
+			if set == "GOOGLE_CALENDAR_ID" {
+				missing = "GOOGLE_CREDENTIALS_JSON"
+			}
+			if !strings.Contains(err.Error(), missing) {
+				t.Errorf("Load() error = %q, want it to name missing %s", err, missing)
+			}
+		})
 	}
 }
 

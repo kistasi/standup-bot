@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/kistasi/standup-bot/internal/claude"
 	"github.com/kistasi/standup-bot/internal/config"
+	"github.com/kistasi/standup-bot/internal/gcal"
 	"github.com/kistasi/standup-bot/internal/gh"
 	"github.com/kistasi/standup-bot/internal/render"
 	"github.com/kistasi/standup-bot/internal/slack"
@@ -40,7 +42,22 @@ func run() error {
 		return err
 	}
 
-	digest := render.Digest(project, commits, cfg.ProjectNumber, since)
+	// Calendar events are optional: fetch them only when credentials and a
+	// calendar are configured; otherwise events stays nil and the digest omits
+	// the section.
+	var events *gcal.Digest
+	if cfg.CalendarEnabled() {
+		cal, err := gcal.New(ctx, []byte(cfg.GoogleCredentialsJSON), cfg.GoogleCalendarID)
+		if err != nil {
+			return err
+		}
+		events, err = cal.Events(ctx, since, time.Now())
+		if err != nil {
+			return err
+		}
+	}
+
+	digest := render.Digest(project, commits, events, cfg.ProjectNumber, since)
 
 	summary, err := claude.New().Ask(ctx, claude.StandupSystem(cfg.PeriodLabel()), digest)
 	if err != nil {

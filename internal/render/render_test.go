@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kistasi/standup-bot/internal/gcal"
 	"github.com/kistasi/standup-bot/internal/gh"
 )
 
@@ -54,7 +55,7 @@ func TestDigest_ProjectAndCommits(t *testing.T) {
 		},
 	}
 
-	got := Digest(project, commits, 7, t1)
+	got := Digest(project, commits, nil, 7, t1)
 
 	// Project item line with URL and indented body.
 	wantIssueLine := "[" + fmtTime(t1) + "]\tOPEN\tFix login bug\thttps://github.com/acme/app/issues/1"
@@ -102,7 +103,7 @@ func TestDigest_Empty(t *testing.T) {
 	project := &gh.ProjectDigest{Login: "octocat", Title: "Roadmap"}
 	commits := &gh.CommitDigest{Org: "acme", Emails: []string{"dev@acme.com"}}
 
-	got := Digest(project, commits, 7, t1)
+	got := Digest(project, commits, nil, 7, t1)
 
 	if !strings.Contains(got, "0 item(s) assigned to octocat") {
 		t.Errorf("empty project footer missing in:\n%s", got)
@@ -117,10 +118,36 @@ func TestDigest_MultipleEmailsJoined(t *testing.T) {
 		Org:    "acme",
 		Emails: []string{"a@acme.com", "b@acme.com"},
 	}
-	got := Digest(&gh.ProjectDigest{}, commits, 1, t1)
+	got := Digest(&gh.ProjectDigest{}, commits, nil, 1, t1)
 
 	if !strings.Contains(got, "by a@acme.com, b@acme.com in acme") {
 		t.Errorf("emails not joined with ', ' in:\n%s", got)
+	}
+}
+
+func TestDigest_Events(t *testing.T) {
+	events := &gcal.Digest{
+		CalendarID: "me@acme.com",
+		Events: []gcal.Event{
+			{Summary: "Sprint planning", Start: t1, End: t2},
+		},
+	}
+	got := Digest(&gh.ProjectDigest{}, &gh.CommitDigest{}, events, 1, t1)
+
+	wantLine := "[" + fmtTime(t1) + "]\t" + fmtTime(t2) + "\tSprint planning"
+	if !strings.Contains(got, wantLine) {
+		t.Errorf("missing event line %q in:\n%s", wantLine, got)
+	}
+	wantFooter := "1 calendar event(s) in me@acme.com since " + fmtTime(t1)
+	if !strings.Contains(got, wantFooter) {
+		t.Errorf("missing event footer %q in:\n%s", wantFooter, got)
+	}
+}
+
+func TestDigest_NoEventsSectionWhenNil(t *testing.T) {
+	got := Digest(&gh.ProjectDigest{}, &gh.CommitDigest{}, nil, 1, t1)
+	if strings.Contains(got, "calendar event(s)") {
+		t.Errorf("nil events should render no calendar section, got:\n%s", got)
 	}
 }
 

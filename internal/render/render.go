@@ -7,16 +7,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kistasi/standup-bot/internal/gcal"
 	"github.com/kistasi/standup-bot/internal/gh"
 )
 
 const timeLayout = "2006-01-02 15:04"
 
-// Digest renders the project items followed by the commits as one report.
-func Digest(project *gh.ProjectDigest, commits *gh.CommitDigest, number int, since time.Time) string {
+// Digest renders the project items, commits, then calendar events as one
+// report. events may be nil when Google Calendar is not configured, in which
+// case no calendar section is written.
+func Digest(project *gh.ProjectDigest, commits *gh.CommitDigest, events *gcal.Digest, number int, since time.Time) string {
 	var b strings.Builder
 	writeProject(&b, project, number, since)
 	writeCommits(&b, commits, since)
+	if events != nil {
+		writeEvents(&b, events, since)
+	}
 	return b.String()
 }
 
@@ -46,6 +52,18 @@ func writeCommits(b *strings.Builder, d *gh.CommitDigest, since time.Time) {
 
 	fmt.Fprintf(b, "\n%d commit(s) by %s in %s since %s\n",
 		len(d.Commits), strings.Join(d.Emails, ", "), d.Org, since.Local().Format(timeLayout))
+}
+
+// writeEvents renders a calendar digest: one line per event with its time
+// range, followed by a count footer.
+func writeEvents(b *strings.Builder, d *gcal.Digest, since time.Time) {
+	for _, e := range d.Events {
+		fmt.Fprintf(b, "[%s]\t%s\t%s\n",
+			e.Start.Local().Format(timeLayout), e.End.Local().Format(timeLayout), e.Summary)
+	}
+
+	fmt.Fprintf(b, "\n%d calendar event(s) in %s since %s\n",
+		len(d.Events), d.CalendarID, since.Local().Format(timeLayout))
 }
 
 // writeBody renders a trimmed description block indented under its entry, or
