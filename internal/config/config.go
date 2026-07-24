@@ -40,9 +40,9 @@ func (c *Config) CalendarEnabled() bool {
 }
 
 // Load reads configuration from the environment. Every variable is required
-// except SLACK_WEBHOOK_URL: there are no defaults or fallbacks, so Load returns
-// an error naming any required variable that is unset (or malformed, for typed
-// values).
+// except SLACK_WEBHOOK_URL and the GOOGLE_CREDENTIALS_JSON / GOOGLE_CALENDAR_ID
+// pair: there are no defaults or fallbacks, so Load returns an error naming any
+// required variable that is unset (or malformed, for typed values).
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
