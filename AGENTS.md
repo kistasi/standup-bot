@@ -29,6 +29,8 @@ go test -run TestName ./path  # run a single test
 go mod tidy       # sync go.mod/go.sum after changing imports
 ```
 
+A `Makefile` wraps these for humans (`make` alone lists the targets: `standup`, `monthly`, `build`, `test`, `check`, `vet`, `fmt`, `tidy`, `clean`). It is a convenience wrapper only — no build logic lives there, and CI calls the `go` commands directly. `make check` runs fmt + vet + test, i.e. everything `.github/workflows/test.yml` checks; note `make fmt` only _reports_ unformatted files rather than rewriting them.
+
 Requires Go 1.26+.
 
 ## Configuration

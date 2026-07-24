@@ -107,10 +107,12 @@ and the Google variables.
 ## Commands
 
 ```bash
-go run .          # run the standup
-go run . monthly  # write a monthly report (interactive)
-go build ./...    # compile
-go test ./...     # run all tests
+make              # list the available targets
+make standup      # run the standup            (go run .)
+make monthly      # write a monthly report     (go run . monthly)
+make build        # compile                    (go build -o standup-bot .)
+make test         # run the tests as CI does   (go test -race -cover ./...)
+make check        # fmt + vet + test
 ```
 
 ## Scheduling
