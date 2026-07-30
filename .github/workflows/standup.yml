@@ -19,6 +19,7 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TOGGL_API_TOKEN: ${{ secrets.TOGGL_API_TOKEN }} # optional: switches tracked time into the digest
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }} # optional: Google credentials JSON, shared by calendar and Drive
           # Non-secret config
           GH_ORG: ${{ vars.GH_ORG }}

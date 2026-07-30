@@ -14,6 +14,7 @@ func setAll(t *testing.T) {
 	t.Setenv("GH_ORG", "acme")
 	t.Setenv("AUTHOR_EMAILS", "a@example.com, b@example.com")
 	t.Setenv("SLACK_WEBHOOK_URL", "")
+	t.Setenv("TOGGL_API_TOKEN", "")
 	t.Setenv("GOOGLE_CREDENTIALS_JSON", "")
 	t.Setenv("GOOGLE_CALENDAR_ID", "")
 	t.Setenv("GOOGLE_DRIVE_FOLDER", "")
@@ -43,6 +44,9 @@ func TestLoad_Valid(t *testing.T) {
 	}
 	if cfg.SlackWebhookURL != "" {
 		t.Errorf("SlackWebhookURL = %q, want empty", cfg.SlackWebhookURL)
+	}
+	if cfg.TogglAPIToken != "" || cfg.TogglEnabled() {
+		t.Errorf("TogglAPIToken = %q, want empty and disabled", cfg.TogglAPIToken)
 	}
 }
 
@@ -317,4 +321,36 @@ func TestRequireEnv(t *testing.T) {
 	if _, err := requireEnv("SOME_KEY"); err == nil {
 		t.Error("requireEnv on whitespace-only = nil error, want error")
 	}
+}
+
+// The Toggl token is optional and is its own switch: unlike the Google pair
+// there is no second variable that could be half-configured.
+func TestLoad_TogglToken(t *testing.T) {
+	t.Run("set enables tracking", func(t *testing.T) {
+		setAll(t)
+		t.Setenv("TOGGL_API_TOKEN", "  tok123  ") // trimmed like the others
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg.TogglAPIToken != "tok123" {
+			t.Errorf("TogglAPIToken = %q, want tok123", cfg.TogglAPIToken)
+		}
+		if !cfg.TogglEnabled() {
+			t.Error("TogglEnabled() = false, want true")
+		}
+	})
+
+	t.Run("unset is not an error", func(t *testing.T) {
+		setAll(t)
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error = %v, want nil for an unset optional token", err)
+		}
+		if cfg.TogglEnabled() {
+			t.Error("TogglEnabled() = true, want false")
+		}
+	})
 }

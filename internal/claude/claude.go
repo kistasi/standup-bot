@@ -14,13 +14,13 @@ import (
 // reaches back across the weekend.
 func StandupSystem(period string) string {
 	return "You are a standup assistant. Given a plain-text digest " +
-		"of a developer's GitHub pull requests, commits, and calendar " +
-		"events (meetings attended), write " +
+		"of a developer's GitHub pull requests, commits, calendar " +
+		"events (meetings attended), and tracked time entries, write " +
 		"a concise first-person standup update. Begin the message with exactly the " +
 		"lines \"Hi Team,\" and \"My " + period + " was about:\" separated by a blank " +
 		"line (two newlines after \"Hi Team,\") and nothing before it. Group " +
 		"related work, lead with what shipped, and keep it to a few short bullet " +
-		"points. " + deliveredRule +
+		"points. " + deliveredRule + timeRule +
 		"Cite the pull requests behind each bullet as markdown links on their " +
 		"titles, e.g. \"[Fix login bug](url)\"; link pull requests only, not " +
 		"commits. Report only work that was actually done: omit items that were " +
@@ -43,11 +43,12 @@ const deliveredRule = "A digest line ending in \"DELIVERED\" is a release — a 
 // file rather than posted as a chat message.
 func MonthlySystem(period string) string {
 	return "You are an engineering reporting assistant. Given a plain-text " +
-		"digest of a developer's GitHub pull requests and commits for " + period +
+		"digest of a developer's GitHub pull requests, commits, and tracked " +
+		"time entries for " + period +
 		", write a first-person monthly report in GitHub-flavored markdown. " +
 		"Each pull request line carries its repository, state, head branch, " +
 		"title, and URL; the commit section that follows records the code " +
-		"behind them. " + deliveredRule +
+		"behind them. " + deliveredRule + timeRule +
 		"Begin with exactly the heading \"# " + period + "\" and nothing before " +
 		"it. Organize the work into a handful of themed sections (\"## \" " +
 		"headings) covering what shipped, what progressed, and anything left " +
@@ -61,6 +62,16 @@ func MonthlySystem(period string) string {
 		"actually done: omit items that were merely created or opened for " +
 		"future work. Omit noise. Write nothing after the final section."
 }
+
+// timeRule explains the tracked-time section, which is present only when Toggl
+// is configured. It has to be worded for its absence too: the prompt is a
+// constant, while the section is not.
+const timeRule = "The digest may end with a tracked-time section — one line per " +
+	"time entry with its duration, project, description and tags, then a total. " +
+	"When it is there, use it to weight what mattered and mention the total " +
+	"where it is worth saying; a line marked \"(still running)\" is a timer that " +
+	"had not been stopped, so treat its duration as approximate. Never invent " +
+	"hours when the section is absent. "
 
 // Client wraps the Anthropic SDK client.
 type Client struct {

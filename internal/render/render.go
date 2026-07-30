@@ -9,6 +9,7 @@ import (
 
 	"github.com/kistasi/standup-bot/internal/gcal"
 	"github.com/kistasi/standup-bot/internal/gh"
+	"github.com/kistasi/standup-bot/internal/toggl"
 )
 
 const timeLayout = "2006-01-02 15:04"
@@ -17,16 +18,21 @@ const timeLayout = "2006-01-02 15:04"
 // The summarizer is told to read it as "this shipped".
 const delivered = "\tDELIVERED"
 
-// Digest renders the pull requests, commits, then calendar events as one
-// report. events may be nil — it is when Google Calendar is not configured — in
-// which case that section is omitted. Tickets are deliberately not part of the
-// digest: the report follows the code that was written and released.
-func Digest(pulls *gh.PullRequestDigest, commits *gh.CommitDigest, events *gcal.Digest, since time.Time) string {
+// Digest renders the pull requests, commits, calendar events, then tracked time
+// as one report. events and times may each be nil — they are when Google
+// Calendar or Toggl is not configured, and times is also nil when the window
+// predates Toggl's lookback limit — in which case that section is omitted.
+// Tickets are deliberately not part of the digest: the report follows the code
+// that was written and released.
+func Digest(pulls *gh.PullRequestDigest, commits *gh.CommitDigest, events *gcal.Digest, times *toggl.Digest, since time.Time) string {
 	var b strings.Builder
 	writePulls(&b, pulls, since)
 	writeCommits(&b, commits, since)
 	if events != nil {
 		writeEvents(&b, events, since)
+	}
+	if times != nil {
+		writeTimes(&b, times, since)
 	}
 	return b.String()
 }
@@ -72,6 +78,40 @@ func writeEvents(b *strings.Builder, d *gcal.Digest, since time.Time) {
 
 	fmt.Fprintf(b, "\n%d calendar event(s) in %s since %s\n",
 		len(d.Events), d.CalendarID, since.Local().Format(timeLayout))
+}
+
+// writeTimes renders tracked time: one line per entry with its span, duration,
+// project, description and tags, then a total. A still-running timer is flagged,
+// since its duration is only as of the moment the digest was built.
+func writeTimes(b *strings.Builder, d *toggl.Digest, since time.Time) {
+	for _, e := range d.Entries {
+		description := e.Description
+		if description == "" {
+			description = "(no description)"
+		}
+		project := e.Project
+		if project == "" {
+			project = "(no project)"
+		}
+		fmt.Fprintf(b, "[%s]\t%s\t%s\t%s\t%s",
+			e.Start.Local().Format(timeLayout), toggl.Label(e.Duration), project, description,
+			strings.Join(e.Tags, ", "))
+		if e.Running {
+			fmt.Fprint(b, "\t(still running)")
+		}
+		fmt.Fprintln(b)
+	}
+
+	fmt.Fprintf(b, "\n%d time entr%s totalling %s tracked since %s\n",
+		len(d.Entries), plural(len(d.Entries)), toggl.Label(d.Total), since.Local().Format(timeLayout))
+}
+
+// plural is the "entry"/"entries" suffix for the tracked-time footer.
+func plural(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }
 
 // mark returns the trailing DELIVERED marker for a released entry, or nothing.

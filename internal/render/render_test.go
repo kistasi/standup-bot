@@ -7,6 +7,7 @@ import (
 
 	"github.com/kistasi/standup-bot/internal/gcal"
 	"github.com/kistasi/standup-bot/internal/gh"
+	"github.com/kistasi/standup-bot/internal/toggl"
 )
 
 // fixed reference time; rendering uses .Local(), so expectations are built with
@@ -57,7 +58,7 @@ func TestDigest_PullsAndCommits(t *testing.T) {
 		},
 	}
 
-	got := Digest(pulls, commits, nil, t1)
+	got := Digest(pulls, commits, nil, nil, t1)
 
 	// Pull request line with repo, state, branch, title, URL, and indented body.
 	wantPull := "[" + fmtTime(t1) + "]\tPullRequest\tacme/app\tMERGED\tfix/login\tFix login bug\thttps://github.com/acme/app/pull/1"
@@ -140,7 +141,7 @@ func TestDigest_DeliveredMarked(t *testing.T) {
 		},
 	}
 
-	got := Digest(pulls, commits, nil, t1)
+	got := Digest(pulls, commits, nil, nil, t1)
 
 	wantPull := "\trelease/2026-07-19\tRelease 2026-07-19\thttps://github.com/acme/app/pull/12\tDELIVERED\n"
 	if !strings.Contains(got, wantPull) {
@@ -160,7 +161,7 @@ func TestDigest_Empty(t *testing.T) {
 	pulls := &gh.PullRequestDigest{Login: "octocat", Org: "acme"}
 	commits := &gh.CommitDigest{Org: "acme", Emails: []string{"dev@acme.com"}}
 
-	got := Digest(pulls, commits, nil, t1)
+	got := Digest(pulls, commits, nil, nil, t1)
 
 	if !strings.Contains(got, "0 pull request(s) by octocat in acme") {
 		t.Errorf("empty pull request footer missing in:\n%s", got)
@@ -175,7 +176,7 @@ func TestDigest_MultipleEmailsJoined(t *testing.T) {
 		Org:    "acme",
 		Emails: []string{"a@acme.com", "b@acme.com"},
 	}
-	got := Digest(&gh.PullRequestDigest{}, commits, nil, t1)
+	got := Digest(&gh.PullRequestDigest{}, commits, nil, nil, t1)
 
 	if !strings.Contains(got, "by a@acme.com, b@acme.com in acme") {
 		t.Errorf("emails not joined with ', ' in:\n%s", got)
@@ -189,7 +190,7 @@ func TestDigest_Events(t *testing.T) {
 			{Summary: "Sprint planning", Start: t1, End: t2},
 		},
 	}
-	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, events, t1)
+	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, events, nil, t1)
 
 	wantLine := "[" + fmtTime(t1) + "]\t" + fmtTime(t2) + "\tSprint planning"
 	if !strings.Contains(got, wantLine) {
@@ -202,9 +203,73 @@ func TestDigest_Events(t *testing.T) {
 }
 
 func TestDigest_NoEventsSectionWhenNil(t *testing.T) {
-	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, t1)
+	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, nil, t1)
 	if strings.Contains(got, "calendar event(s)") {
 		t.Errorf("nil events should render no calendar section, got:\n%s", got)
+	}
+}
+
+func TestDigest_TrackedTime(t *testing.T) {
+	times := &toggl.Digest{
+		Total: 105 * time.Minute,
+		Entries: []toggl.Entry{
+			{
+				Description: "Fix login bug",
+				Project:     "App",
+				Start:       t1,
+				Stop:        t1.Add(90 * time.Minute),
+				Duration:    90 * time.Minute,
+				Tags:        []string{"dev", "urgent"},
+			},
+			{
+				Description: "Standup",
+				Project:     "Internal",
+				Start:       t2,
+				Duration:    15 * time.Minute,
+			},
+		},
+	}
+	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, times, t1)
+
+	wantLine := "[" + fmtTime(t1) + "]\t1h 30m\tApp\tFix login bug\tdev, urgent\n"
+	if !strings.Contains(got, wantLine) {
+		t.Errorf("missing time entry line %q in:\n%s", wantLine, got)
+	}
+	wantFooter := "2 time entries totalling 1h 45m tracked since " + fmtTime(t1)
+	if !strings.Contains(got, wantFooter) {
+		t.Errorf("missing tracked-time footer %q in:\n%s", wantFooter, got)
+	}
+	// Tracked time closes the digest, after the commit section.
+	if strings.Index(got, "commit(s) by") > strings.Index(got, "Fix login bug") {
+		t.Error("expected the tracked-time section to render after commits")
+	}
+}
+
+func TestDigest_TrackedTimePlaceholdersAndRunning(t *testing.T) {
+	// An entry needs neither a description nor a project, and a timer may still
+	// be running when the digest is built — none of which may render blank.
+	times := &toggl.Digest{
+		Total: 30 * time.Minute,
+		Entries: []toggl.Entry{
+			{Start: t1, Duration: 30 * time.Minute, Running: true},
+		},
+	}
+	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, times, t1)
+
+	wantLine := "[" + fmtTime(t1) + "]\t30m\t(no project)\t(no description)\t\t(still running)\n"
+	if !strings.Contains(got, wantLine) {
+		t.Errorf("missing running entry line %q in:\n%s", wantLine, got)
+	}
+	// The footer's singular form.
+	if !strings.Contains(got, "1 time entry totalling 30m tracked since") {
+		t.Errorf("singular footer missing in:\n%s", got)
+	}
+}
+
+func TestDigest_NoTrackedTimeSectionWhenNil(t *testing.T) {
+	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, nil, t1)
+	if strings.Contains(got, "tracked since") {
+		t.Errorf("nil tracked time should render no section, got:\n%s", got)
 	}
 }
 
