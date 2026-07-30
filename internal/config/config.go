@@ -5,7 +5,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,14 +13,18 @@ import (
 
 // Config holds everything main needs to assemble and render a digest.
 type Config struct {
-	GitHubToken   string   // GH_PAT
-	Org           string   // GH_ORG
-	ProjectNumber int      // GH_PROJECT
-	AuthorEmails  []string // AUTHOR_EMAILS
+	GitHubToken  string   // GH_PAT
+	Org          string   // GH_ORG
+	AuthorEmails []string // AUTHOR_EMAILS
 
 	// SlackWebhookURL is optional: when set, the summary is posted to the Slack
 	// incoming webhook; when empty, it is only printed.
 	SlackWebhookURL string // SLACK_WEBHOOK_URL
+
+	// TogglAPIToken is optional: when set, the tracked time in the window is
+	// added to the digest. Toggl takes the token as an HTTP Basic username, so
+	// unlike the Google features it needs no second variable to switch it on.
+	TogglAPIToken string // TOGGL_API_TOKEN
 
 	// GoogleCredentialsJSON is the credential shared by both Google features
 	// below: a Google credentials JSON — either authorized-user credentials
@@ -41,6 +44,12 @@ type Config struct {
 	GoogleDriveFolder string // GOOGLE_DRIVE_FOLDER
 }
 
+// TogglEnabled reports whether Toggl time tracking is configured. The token is
+// the whole configuration, so its presence is the switch.
+func (c *Config) TogglEnabled() bool {
+	return c.TogglAPIToken != ""
+}
+
 // CalendarEnabled reports whether Google Calendar is configured. Load
 // guarantees the credentials accompany it, so testing the switch suffices.
 func (c *Config) CalendarEnabled() bool {
@@ -54,7 +63,7 @@ func (c *Config) DriveEnabled() bool {
 }
 
 // Load reads configuration from the environment. Every variable is required
-// except SLACK_WEBHOOK_URL and the GOOGLE_* group: there are no defaults or
+// except SLACK_WEBHOOK_URL, TOGGL_API_TOKEN and the GOOGLE_* group: there are no defaults or
 // fallbacks, so Load returns an error naming any required variable that is
 // unset (or malformed, for typed values), and any half-configured Google
 // feature.
@@ -68,14 +77,6 @@ func Load() (*Config, error) {
 	org, err := requireEnv("GH_ORG")
 	if err != nil {
 		return nil, err
-	}
-	projectRaw, err := requireEnv("GH_PROJECT")
-	if err != nil {
-		return nil, err
-	}
-	project, err := strconv.Atoi(projectRaw)
-	if err != nil {
-		return nil, fmt.Errorf("GH_PROJECT %q: %w", projectRaw, err)
 	}
 	emailsRaw, err := requireEnv("AUTHOR_EMAILS")
 	if err != nil {
@@ -104,9 +105,9 @@ func Load() (*Config, error) {
 	return &Config{
 		GitHubToken:           token,
 		Org:                   org,
-		ProjectNumber:         project,
 		AuthorEmails:          emails,
 		SlackWebhookURL:       strings.TrimSpace(os.Getenv("SLACK_WEBHOOK_URL")),
+		TogglAPIToken:         strings.TrimSpace(os.Getenv("TOGGL_API_TOKEN")),
 		GoogleCredentialsJSON: credsJSON,
 		GoogleCalendarID:      calendarID,
 		GoogleDriveFolder:     driveFolder,

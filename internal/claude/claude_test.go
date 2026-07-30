@@ -111,13 +111,16 @@ func TestMonthlySystem_Anchors(t *testing.T) {
 	// The monthly prompt's contract: it names the month it covers and asks for
 	// markdown opening on that month's heading.
 	sys := MonthlySystem("June 2026")
-	// It also has to explain the digest's item types and demand that bullets
-	// cite the tickets and pull requests behind them.
+	// It also has to explain the DELIVERED marker and demand that bullets cite
+	// the pull requests behind them as links.
 	for _, anchor := range []string{
 		"June 2026", "# June 2026", "markdown",
-		"PullRequest", "DraftIssue", "tickets and pull requests", "markdown links",
+		"pull request", "DELIVERED", "delivered", "markdown links",
+		"tracked-time", "still running", "Never invent",
+		"no commit and no pull request", "Nothing else in the digest",
+		"never mention hours for any other work", "## Work without a paper trail",
 	} {
-		if !strings.Contains(sys, anchor) {
+		if !strings.Contains(strings.ToLower(sys), strings.ToLower(anchor)) {
 			t.Errorf("MonthlySystem missing required anchor %q", anchor)
 		}
 	}
@@ -143,8 +146,17 @@ func TestStandupSystem_Anchors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.period, func(t *testing.T) {
 			sys := StandupSystem(tt.period)
-			for _, anchor := range []string{"Hi Team,", tt.opening, "Have a nice day!"} {
-				if !strings.Contains(sys, anchor) {
+			// The DELIVERED marker and the link requirement are part of the
+			// contract too: a release must read as shipped, and pull requests must
+			// be cited as links.
+			for _, anchor := range []string{
+				"Hi Team,", tt.opening, "Have a nice day!",
+				"DELIVERED", "delivered", "markdown links",
+				"tracked-time", "still running", "Never invent",
+				"no commit and no pull request", "Nothing else in the digest",
+				"never mention hours for any other work",
+			} {
+				if !strings.Contains(strings.ToLower(sys), strings.ToLower(anchor)) {
 					t.Errorf("StandupSystem(%q) missing required anchor %q", tt.period, anchor)
 				}
 			}

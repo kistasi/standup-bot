@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/kistasi/standup-bot/internal/monthly"
 	"github.com/kistasi/standup-bot/internal/render"
 	"github.com/kistasi/standup-bot/internal/slack"
+	"github.com/kistasi/standup-bot/internal/toggl"
 )
 
 func main() {
@@ -38,7 +40,10 @@ func dispatch(args []string) error {
 	}
 }
 
-// run assembles the digest and feeds it to Claude for a standup summary.
+// run assembles the digest — pull requests and commits, plus meetings when the
+// calendar is on and tracked time when Toggl is — and feeds it to Claude for a
+// standup summary. Project tickets are deliberately not part of it: the report
+// follows the code.
 func run() error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -53,7 +58,7 @@ func run() error {
 	now := time.Now()
 	since, until := cfg.Since(), now
 
-	project, err := client.MyProjectItems(ctx, cfg.Org, cfg.ProjectNumber, since, until)
+	pulls, err := client.MyPullRequests(ctx, cfg.Org, since, until)
 	if err != nil {
 		return err
 	}
@@ -78,7 +83,12 @@ func run() error {
 		}
 	}
 
-	digest := render.Digest(project, nil, commits, events, cfg.ProjectNumber, since)
+	times, err := trackedTime(ctx, cfg, since, until)
+	if err != nil {
+		return err
+	}
+
+	digest := render.Digest(pulls, commits, events, times, since)
 
 	summary, err := claude.New().Ask(ctx, claude.StandupSystem(cfg.PeriodLabel()), digest)
 	if err != nil {
@@ -126,9 +136,28 @@ func backup(ctx context.Context, cfg *config.Config, name string, content []byte
 	return nil
 }
 
-// runMonthly asks for a month, gathers that month's GitHub activity, and writes
-// a markdown report to disk. Calendar events and Slack are deliberately left
-// out: this is a written report, not a daily message.
+// trackedTime reads the window's Toggl entries, or returns nil when tracking is
+// off. A window older than Toggl's ~3-month lookback is a warning rather than a
+// failure: a monthly report for an old month is still worth writing without its
+// hours, and the guard means no request is spent on a call Toggl would reject.
+func trackedTime(ctx context.Context, cfg *config.Config, since, until time.Time) (*toggl.Digest, error) {
+	if !cfg.TogglEnabled() {
+		return nil, nil
+	}
+	times, err := toggl.New(cfg.TogglAPIToken).Entries(ctx, since, until)
+	if errors.Is(err, toggl.ErrBeyondLookback) {
+		fmt.Fprintln(os.Stderr, "Skipping tracked time:", err)
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return times, nil
+}
+
+// runMonthly asks for a month, gathers that month's GitHub activity and tracked
+// time, and writes a markdown report to disk. Calendar events and Slack are
+// deliberately left out: this is a written report, not a daily message.
 func runMonthly() error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -146,14 +175,6 @@ func runMonthly() error {
 	client := gh.New(cfg.GitHubToken)
 
 	fmt.Fprintf(os.Stderr, "Collecting %s activity...\n", label)
-	project, err := client.MyProjectItems(ctx, cfg.Org, cfg.ProjectNumber, since, until)
-	if err != nil {
-		return err
-	}
-
-	// Unlike the standup, the monthly report also covers pull requests that were
-	// never added to the project board; render drops the ones already listed
-	// above.
 	pulls, err := client.MyPullRequests(ctx, cfg.Org, since, until)
 	if err != nil {
 		return err
@@ -164,7 +185,12 @@ func runMonthly() error {
 		return err
 	}
 
-	digest := render.Digest(project, pulls, commits, nil, cfg.ProjectNumber, since)
+	times, err := trackedTime(ctx, cfg, since, until)
+	if err != nil {
+		return err
+	}
+
+	digest := render.Digest(pulls, commits, nil, times, since)
 
 	fmt.Fprintln(os.Stderr, "Writing the report...")
 	report, err := claude.New().Ask(ctx, claude.MonthlySystem(label), digest)

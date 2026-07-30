@@ -139,6 +139,26 @@ func TestToMrkdwn(t *testing.T) {
 		{"a span is not joined across lines", "**one\ntwo**", "**one\ntwo**"},
 		{"code spans are left alone", "bumped to `800ms`", "bumped to `800ms`"},
 		{"unpaired asterisks are left alone", "2 ** 8 is 256", "2 ** 8 is 256"},
+		{
+			"a markdown link becomes a slack link",
+			"Shipped [Fix login bug](https://github.com/acme/app/pull/1) today",
+			"Shipped <https://github.com/acme/app/pull/1|Fix login bug> today",
+		},
+		{
+			"two links on one line",
+			"[a](https://x/1) and [b](https://x/2)",
+			"<https://x/1|a> and <https://x/2|b>",
+		},
+		{
+			"a bold link converts both ways",
+			"**[Release](https://x/9)**",
+			"*<https://x/9|Release>*",
+		},
+		{
+			"bracketed prose is left alone",
+			"the fix [see below] (it landed)",
+			"the fix [see below] (it landed)",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

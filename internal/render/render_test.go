@@ -7,6 +7,7 @@ import (
 
 	"github.com/kistasi/standup-bot/internal/gcal"
 	"github.com/kistasi/standup-bot/internal/gh"
+	"github.com/kistasi/standup-bot/internal/toggl"
 )
 
 // fixed reference time; rendering uses .Local(), so expectations are built with
@@ -18,25 +19,27 @@ var (
 
 func fmtTime(ts time.Time) string { return ts.Local().Format(timeLayout) }
 
-func TestDigest_ProjectAndCommits(t *testing.T) {
-	project := &gh.ProjectDigest{
+func TestDigest_PullsAndCommits(t *testing.T) {
+	pulls := &gh.PullRequestDigest{
 		Login: "octocat",
-		Title: "Roadmap",
-		Items: []gh.Item{
+		Org:   "acme",
+		PullRequests: []gh.PullRequest{
 			{
-				Type:      "Issue",
+				Repo:      "acme/app",
 				Title:     "Fix login bug",
 				Body:      "Users can't log in.\nStack trace attached.",
-				URL:       "https://github.com/acme/app/issues/1",
-				State:     "OPEN",
+				URL:       "https://github.com/acme/app/pull/1",
+				State:     "MERGED",
+				Branch:    "fix/login",
 				UpdatedAt: t1,
 			},
 			{
-				Type:      "DraftIssue",
-				Title:     "Spike on caching",
-				Body:      "", // no body -> no indented block
-				URL:       "", // draft -> "(draft)"
-				State:     "DRAFT",
+				Repo:      "acme/tools",
+				Title:     "Bump the linter",
+				URL:       "https://github.com/acme/tools/pull/9",
+				State:     "OPEN",
+				Branch:    "chore/linter",
+				Draft:     true,
 				UpdatedAt: t2,
 			},
 		},
@@ -55,27 +58,26 @@ func TestDigest_ProjectAndCommits(t *testing.T) {
 		},
 	}
 
-	got := Digest(project, nil, commits, nil, 7, t1)
+	got := Digest(pulls, commits, nil, nil, t1)
 
-	// Project item line with type, URL and indented body.
-	wantIssueLine := "[" + fmtTime(t1) + "]\tIssue\tOPEN\tFix login bug\thttps://github.com/acme/app/issues/1"
-	if !strings.Contains(got, wantIssueLine) {
-		t.Errorf("missing issue line %q in:\n%s", wantIssueLine, got)
+	// Pull request line with repo, state, branch, title, URL, and indented body.
+	wantPull := "[" + fmtTime(t1) + "]\tPullRequest\tacme/app\tMERGED\tfix/login\tFix login bug\thttps://github.com/acme/app/pull/1"
+	if !strings.Contains(got, wantPull) {
+		t.Errorf("missing pull request line %q in:\n%s", wantPull, got)
 	}
 	if !strings.Contains(got, "    Users can't log in.\n    Stack trace attached.") {
-		t.Errorf("issue body not indented as expected in:\n%s", got)
+		t.Errorf("pull request body not indented as expected in:\n%s", got)
 	}
 
-	// Draft item uses "(draft)" placeholder for the empty URL and DRAFT state.
-	wantDraftLine := "[" + fmtTime(t2) + "]\tDraftIssue\tDRAFT\tSpike on caching\t(draft)"
-	if !strings.Contains(got, wantDraftLine) {
-		t.Errorf("missing draft line %q in:\n%s", wantDraftLine, got)
+	// A draft pull request says so in the state column.
+	wantDraft := "\tOPEN (draft)\tchore/linter\tBump the linter\t"
+	if !strings.Contains(got, wantDraft) {
+		t.Errorf("missing draft pull request line %q in:\n%s", wantDraft, got)
 	}
 
-	// Project summary footer.
-	wantProjFooter := `2 item(s) assigned to octocat updated since ` + fmtTime(t1) + ` in project #7 "Roadmap"`
-	if !strings.Contains(got, wantProjFooter) {
-		t.Errorf("missing project footer %q in:\n%s", wantProjFooter, got)
+	wantPullFooter := "2 pull request(s) by octocat in acme updated since " + fmtTime(t1)
+	if !strings.Contains(got, wantPullFooter) {
+		t.Errorf("missing pull request footer %q in:\n%s", wantPullFooter, got)
 	}
 
 	// Commit line and indented body.
@@ -87,117 +89,82 @@ func TestDigest_ProjectAndCommits(t *testing.T) {
 		t.Errorf("commit body not indented in:\n%s", got)
 	}
 
-	// Commit summary footer.
 	wantCommitFooter := "1 commit(s) by dev@acme.com in acme since " + fmtTime(t1)
 	if !strings.Contains(got, wantCommitFooter) {
 		t.Errorf("missing commit footer %q in:\n%s", wantCommitFooter, got)
 	}
 
-	// Project section precedes commit section.
-	if strings.Index(got, "Roadmap") > strings.Index(got, "Add retry logic") {
-		t.Error("expected project section to render before commits")
+	// Nothing here shipped, so no line carries the marker.
+	if strings.Contains(got, "DELIVERED") {
+		t.Errorf("unexpected DELIVERED marker in:\n%s", got)
+	}
+
+	// Pull requests precede commits.
+	if strings.Index(got, "Fix login bug") > strings.Index(got, "Add retry logic") {
+		t.Error("expected the pull request section to render before commits")
 	}
 }
 
-func TestDigest_PullRequestItemTyped(t *testing.T) {
-	// Pull requests on the board must be distinguishable from tickets, so the
-	// monthly report can cite each kind separately.
-	project := &gh.ProjectDigest{
-		Login: "octocat",
-		Items: []gh.Item{
-			{
-				Type:      "PullRequest",
-				Title:     "Add retry logic",
-				URL:       "https://github.com/acme/app/pull/2",
-				State:     "MERGED",
-				UpdatedAt: t1,
-			},
-		},
-	}
-	got := Digest(project, nil, &gh.CommitDigest{}, nil, 7, t1)
-
-	want := "[" + fmtTime(t1) + "]\tPullRequest\tMERGED\tAdd retry logic\thttps://github.com/acme/app/pull/2"
-	if !strings.Contains(got, want) {
-		t.Errorf("missing pull request line %q in:\n%s", want, got)
-	}
-}
-
-func TestDigest_PullsDedupedAgainstBoard(t *testing.T) {
-	// A pull request already on the board belongs to the project section only;
-	// one that never made it there gets its own entry.
-	project := &gh.ProjectDigest{
-		Login: "octocat",
-		Items: []gh.Item{
-			{
-				Type:      "PullRequest",
-				Title:     "On the board",
-				URL:       "https://github.com/acme/app/pull/1",
-				State:     "MERGED",
-				UpdatedAt: t1,
-			},
-		},
-	}
+func TestDigest_DeliveredMarked(t *testing.T) {
 	pulls := &gh.PullRequestDigest{
 		Login: "octocat",
 		Org:   "acme",
 		PullRequests: []gh.PullRequest{
 			{
 				Repo:      "acme/app",
-				Title:     "On the board",
-				URL:       "https://github.com/acme/app/pull/1",
+				Title:     "Release 2026-07-19",
+				URL:       "https://github.com/acme/app/pull/12",
 				State:     "MERGED",
+				Branch:    "release/2026-07-19",
 				UpdatedAt: t1,
+				Delivered: true,
+			},
+		},
+	}
+	commits := &gh.CommitDigest{
+		Org:    "acme",
+		Emails: []string{"dev@acme.com"},
+		Commits: []gh.Commit{
+			{
+				Repo:          "acme/app",
+				Message:       "Release 2026-07-19 (#12)",
+				URL:           "https://github.com/acme/app/commit/def",
+				CommittedDate: t2,
+				Delivered:     true,
 			},
 			{
-				Repo:      "acme/tools",
-				Title:     "Off the board",
-				Body:      "Bumps the linter.",
-				URL:       "https://github.com/acme/tools/pull/9",
-				State:     "OPEN",
-				Draft:     true,
-				UpdatedAt: t2,
+				Repo:          "acme/app",
+				Message:       "Add retry logic",
+				URL:           "https://github.com/acme/app/commit/abc",
+				CommittedDate: t2,
 			},
 		},
 	}
 
-	got := Digest(project, pulls, &gh.CommitDigest{}, nil, 7, t1)
+	got := Digest(pulls, commits, nil, nil, t1)
 
-	wantLine := "[" + fmtTime(t2) + "]\tPullRequest\tacme/tools\tOPEN (draft)\tOff the board\thttps://github.com/acme/tools/pull/9"
-	if !strings.Contains(got, wantLine) {
-		t.Errorf("missing pull request line %q in:\n%s", wantLine, got)
+	wantPull := "\trelease/2026-07-19\tRelease 2026-07-19\thttps://github.com/acme/app/pull/12\tDELIVERED\n"
+	if !strings.Contains(got, wantPull) {
+		t.Errorf("release pull request not marked delivered; want %q in:\n%s", wantPull, got)
 	}
-	if !strings.Contains(got, "    Bumps the linter.") {
-		t.Errorf("pull request body not indented in:\n%s", got)
+	wantCommit := "\tRelease 2026-07-19 (#12)\thttps://github.com/acme/app/commit/def\tDELIVERED\n"
+	if !strings.Contains(got, wantCommit) {
+		t.Errorf("release commit not marked delivered; want %q in:\n%s", wantCommit, got)
 	}
-	// The board's own pull request appears once, in the project section.
-	if n := strings.Count(got, "https://github.com/acme/app/pull/1"); n != 1 {
-		t.Errorf("board pull request rendered %d times, want 1, in:\n%s", n, got)
-	}
-	wantFooter := "1 further pull request(s) by octocat in acme updated since " + fmtTime(t1) + ", not on the project board"
-	if !strings.Contains(got, wantFooter) {
-		t.Errorf("missing pull request footer %q in:\n%s", wantFooter, got)
-	}
-	// Pull requests sit between the project and commit sections.
-	if strings.Index(got, "Off the board") > strings.Index(got, "commit(s) by") {
-		t.Error("expected pull request section to render before commits")
-	}
-}
-
-func TestDigest_NoPullsSectionWhenNil(t *testing.T) {
-	got := Digest(&gh.ProjectDigest{}, nil, &gh.CommitDigest{}, nil, 1, t1)
-	if strings.Contains(got, "pull request(s)") {
-		t.Errorf("nil pulls should render no pull request section, got:\n%s", got)
+	// Exactly the two release entries are marked — not the ordinary commit.
+	if n := strings.Count(got, "DELIVERED"); n != 2 {
+		t.Errorf("DELIVERED appears %d times, want 2, in:\n%s", n, got)
 	}
 }
 
 func TestDigest_Empty(t *testing.T) {
-	project := &gh.ProjectDigest{Login: "octocat", Title: "Roadmap"}
+	pulls := &gh.PullRequestDigest{Login: "octocat", Org: "acme"}
 	commits := &gh.CommitDigest{Org: "acme", Emails: []string{"dev@acme.com"}}
 
-	got := Digest(project, nil, commits, nil, 7, t1)
+	got := Digest(pulls, commits, nil, nil, t1)
 
-	if !strings.Contains(got, "0 item(s) assigned to octocat") {
-		t.Errorf("empty project footer missing in:\n%s", got)
+	if !strings.Contains(got, "0 pull request(s) by octocat in acme") {
+		t.Errorf("empty pull request footer missing in:\n%s", got)
 	}
 	if !strings.Contains(got, "0 commit(s) by dev@acme.com in acme") {
 		t.Errorf("empty commit footer missing in:\n%s", got)
@@ -209,7 +176,7 @@ func TestDigest_MultipleEmailsJoined(t *testing.T) {
 		Org:    "acme",
 		Emails: []string{"a@acme.com", "b@acme.com"},
 	}
-	got := Digest(&gh.ProjectDigest{}, nil, commits, nil, 1, t1)
+	got := Digest(&gh.PullRequestDigest{}, commits, nil, nil, t1)
 
 	if !strings.Contains(got, "by a@acme.com, b@acme.com in acme") {
 		t.Errorf("emails not joined with ', ' in:\n%s", got)
@@ -223,7 +190,7 @@ func TestDigest_Events(t *testing.T) {
 			{Summary: "Sprint planning", Start: t1, End: t2},
 		},
 	}
-	got := Digest(&gh.ProjectDigest{}, nil, &gh.CommitDigest{}, events, 1, t1)
+	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, events, nil, t1)
 
 	wantLine := "[" + fmtTime(t1) + "]\t" + fmtTime(t2) + "\tSprint planning"
 	if !strings.Contains(got, wantLine) {
@@ -236,9 +203,104 @@ func TestDigest_Events(t *testing.T) {
 }
 
 func TestDigest_NoEventsSectionWhenNil(t *testing.T) {
-	got := Digest(&gh.ProjectDigest{}, nil, &gh.CommitDigest{}, nil, 1, t1)
+	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, nil, t1)
 	if strings.Contains(got, "calendar event(s)") {
 		t.Errorf("nil events should render no calendar section, got:\n%s", got)
+	}
+}
+
+// Only the entries naming no ticket are rendered. Time logged against a ticket
+// is left out entirely: the pull request and commit sections already cover that
+// work, and no figure for how long it took belongs in the digest.
+func TestDigest_TrackedTimeOnlyWithoutATicket(t *testing.T) {
+	times := &toggl.Digest{
+		Unflagged: 15 * time.Minute,
+		Entries: []toggl.Entry{
+			{
+				Description: "#412 Fix login bug",
+				Project:     "App",
+				Start:       t1,
+				Stop:        t1.Add(90 * time.Minute),
+				Duration:    90 * time.Minute,
+				Tags:        []string{"dev", "urgent"},
+				Tickets:     []string{"#412"},
+			},
+			{
+				// No ticket: the entry no commit will ever account for.
+				Description: "Release planning",
+				Project:     "Internal",
+				Start:       t2,
+				Duration:    15 * time.Minute,
+			},
+		},
+	}
+	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, times, t1)
+
+	wantLine := "[" + fmtTime(t2) + "]\t15m\tInternal\tRelease planning\t\n"
+	if !strings.Contains(got, wantLine) {
+		t.Errorf("missing untracked-work line %q in:\n%s", wantLine, got)
+	}
+	// The ticketed entry is absent — its description, and above all its hours.
+	for _, unwanted := range []string{"#412", "Fix login bug", "1h 30m"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("digest leaked ticketed work (%q) in:\n%s", unwanted, got)
+		}
+	}
+
+	wantFooter := "1 time entry totalling 15m since " + fmtTime(t1) +
+		", none tied to a ticket: work with no commit or pull request behind it"
+	if !strings.Contains(got, wantFooter) {
+		t.Errorf("missing tracked-time footer %q in:\n%s", wantFooter, got)
+	}
+	// Tracked time closes the digest, after the commit section.
+	if strings.Index(got, "commit(s) by") > strings.Index(got, "Release planning") {
+		t.Error("expected the tracked-time section to render after commits")
+	}
+}
+
+// Every entry naming a ticket means there is no untracked work to report; the
+// section must then total nothing rather than falling back to the full figure.
+func TestDigest_TrackedTimeAllTicketed(t *testing.T) {
+	times := &toggl.Digest{
+		Entries: []toggl.Entry{
+			{Description: "#1 a", Start: t1, Duration: time.Hour, Tickets: []string{"#1"}},
+			{Description: "#2 b", Start: t2, Duration: time.Hour, Tickets: []string{"#2"}},
+		},
+	}
+	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, times, t1)
+
+	if !strings.Contains(got, "0 time entries totalling 0m since") {
+		t.Errorf("want an empty untracked-work footer in:\n%s", got)
+	}
+	if strings.Contains(got, "1h") || strings.Contains(got, "2h") {
+		t.Errorf("digest leaked hours for ticketed work in:\n%s", got)
+	}
+}
+
+func TestDigest_TrackedTimePlaceholdersAndRunning(t *testing.T) {
+	// An entry needs neither a description nor a project, and a timer may still
+	// be running when the digest is built — none of which may render blank.
+	times := &toggl.Digest{
+		Entries: []toggl.Entry{
+			{Start: t1, Duration: 30 * time.Minute, Running: true},
+		},
+	}
+	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, times, t1)
+
+	wantLine := "[" + fmtTime(t1) + "]\t30m\t(no project)\t(no description)\t\t(still running)\n"
+	if !strings.Contains(got, wantLine) {
+		t.Errorf("missing running entry line %q in:\n%s", wantLine, got)
+	}
+	// The footer's singular form.
+	if !strings.Contains(got, "1 time entry totalling 30m since") {
+		t.Errorf("singular footer missing in:\n%s", got)
+	}
+}
+
+func TestDigest_NoTrackedTimeSectionWhenNil(t *testing.T) {
+	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, nil, t1)
+	if strings.Contains(got, "tracked since") {
+		t.Errorf("nil tracked time should render no section, got:\n%s", got)
 	}
 }
 

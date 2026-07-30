@@ -40,78 +40,15 @@ func stubServer(t *testing.T, bodies ...string) (*Client, *[]map[string]any) {
 	return &Client{gql: githubv4.NewEnterpriseClient(srv.URL, srv.Client())}, &requests
 }
 
-func TestMyProjectItems_FiltersAndPages(t *testing.T) {
-	// Page 1: an issue assigned to the viewer (kept), an issue assigned to
-	// someone else (dropped). Page 2: a draft assigned to the viewer (kept).
-	page1 := `{"data":{
-		"viewer":{"login":"octocat"},
-		"organization":{"projectV2":{
-			"title":"Roadmap",
-			"items":{
-				"pageInfo":{"hasNextPage":true,"endCursor":"CUR1"},
-				"nodes":[
-					{"content":{"__typename":"Issue","title":"Mine","body":"b1","url":"https://x/1","state":"OPEN","updatedAt":"2026-07-19T10:00:00Z","assignees":{"nodes":[{"login":"octocat"}]}}},
-					{"content":{"__typename":"Issue","title":"Theirs","body":"b2","url":"https://x/2","state":"OPEN","updatedAt":"2026-07-19T10:00:00Z","assignees":{"nodes":[{"login":"other"}]}}}
-				]
-			}
-		}}
-	}}`
-	page2 := `{"data":{
-		"viewer":{"login":"octocat"},
-		"organization":{"projectV2":{
-			"title":"Roadmap",
-			"items":{
-				"pageInfo":{"hasNextPage":false,"endCursor":""},
-				"nodes":[
-					{"content":{"__typename":"DraftIssue","title":"Draft mine","body":"d","updatedAt":"2026-07-19T11:00:00Z","assignees":{"nodes":[{"login":"octocat"}]}}}
-				]
-			}
-		}}
-	}}`
-
-	client, requests := stubServer(t, page1, page2)
-	since := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
-	until := since.Add(24 * time.Hour)
-
-	digest, err := client.MyProjectItems(context.Background(), "acme", 7, since, until)
-	if err != nil {
-		t.Fatalf("MyProjectItems error = %v", err)
-	}
-
-	if digest.Login != "octocat" {
-		t.Errorf("Login = %q, want octocat", digest.Login)
-	}
-	if digest.Title != "Roadmap" {
-		t.Errorf("Title = %q, want Roadmap", digest.Title)
-	}
-	if len(digest.Items) != 2 {
-		t.Fatalf("got %d items, want 2 (viewer's issue + draft): %+v", len(digest.Items), digest.Items)
-	}
-	if digest.Items[0].Title != "Mine" || digest.Items[0].Type != "Issue" {
-		t.Errorf("item[0] = %+v, want viewer's issue", digest.Items[0])
-	}
-	if digest.Items[1].Title != "Draft mine" || digest.Items[1].State != "DRAFT" {
-		t.Errorf("item[1] = %+v, want viewer's draft", digest.Items[1])
-	}
-
-	// Two queries were made; the second carried the page-1 end cursor.
-	if len(*requests) != 2 {
-		t.Fatalf("made %d queries, want 2", len(*requests))
-	}
-	if vars, _ := (*requests)[1]["variables"].(map[string]any); vars["cursor"] != "CUR1" {
-		t.Errorf("second query cursor = %v, want CUR1", vars["cursor"])
-	}
-}
-
 func TestOrgCommits_FiltersNoiseAndStopsOnOldRepo(t *testing.T) {
 	since := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
 	until := since.Add(24 * time.Hour)
 	inRange := "2026-07-19T12:00:00Z"
 
 	// One page. First repo (pushed in range) has: a normal commit (kept), a
-	// release commit (dropped), a merge commit with 2 parents (dropped). The
-	// second repo was pushed before `since`, so the scan stops and never reads
-	// its commits.
+	// release commit (kept and marked delivered), a merge commit with 2 parents
+	// (dropped). The second repo was pushed before `since`, so the scan stops and
+	// never reads its commits.
 	body := `{"data":{"organization":{"repositories":{
 		"pageInfo":{"hasNextPage":true,"endCursor":"NEXT"},
 		"nodes":[
@@ -148,13 +85,17 @@ func TestOrgCommits_FiltersNoiseAndStopsOnOldRepo(t *testing.T) {
 	if digest.Org != "acme" {
 		t.Errorf("Org = %q, want acme", digest.Org)
 	}
-	if len(digest.Commits) != 1 {
-		t.Fatalf("got %d commits, want 1 (release + merge + stale-repo dropped): %+v", len(digest.Commits), digest.Commits)
+	if len(digest.Commits) != 2 {
+		t.Fatalf("got %d commits, want 2 (merge + stale-repo dropped, release kept): %+v", len(digest.Commits), digest.Commits)
 	}
 	c := digest.Commits[0]
 	if c.Repo != "acme/app" || c.Message != "Add retry logic" || c.Body != "body" ||
-		c.URL != "https://x/c1" || c.OID != "c1" {
+		c.URL != "https://x/c1" || c.OID != "c1" || c.Delivered {
 		t.Errorf("commit = %+v, unexpected fields", c)
+	}
+	// The release commit is the delivery, so it is reported rather than skipped.
+	if r := digest.Commits[1]; r.OID != "c2" || !r.Delivered {
+		t.Errorf("commit[1] = %+v, want the release commit marked delivered", r)
 	}
 
 	// The scan stopped at the stale repo, so despite hasNextPage=true it made
@@ -217,7 +158,8 @@ func TestOrgCommits_PagesRepositoryHistory(t *testing.T) {
 			}}
 		}]
 	}}}}`
-	// Follow-up page 1 for that repo: one kept commit and one release commit.
+	// Follow-up page 1 for that repo: an ordinary commit and a release commit —
+	// both kept, the release one flagged as delivered.
 	repoPage1 := `{"data":{"repository":{"defaultBranchRef":{"target":{
 		"history":{
 			"pageInfo":{"hasNextPage":true,"endCursor":"H2"},
@@ -248,9 +190,9 @@ func TestOrgCommits_PagesRepositoryHistory(t *testing.T) {
 		}
 		got = append(got, c.Message)
 	}
-	want := []string{"First", "Second", "Third"}
+	want := []string{"First", "Second", "Release 2026-07-19", "Third"}
 	if len(got) != len(want) {
-		t.Fatalf("got commits %v, want %v (release dropped, no page truncated)", got, want)
+		t.Fatalf("got commits %v, want %v (no page truncated)", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
@@ -312,17 +254,18 @@ func TestMyPullRequests_FiltersAndStopsOnOldPull(t *testing.T) {
 	until := since.Add(24 * time.Hour)
 
 	// One page holding, in update order: a pull request in the org and window
-	// (kept), one in another org (dropped), a release pull request (dropped),
-	// one updated at `until` (dropped, exclusive end), then one updated before
-	// `since` — which stops the walk, so the cursor is never followed.
+	// (kept), one in another org (dropped), a release-branch pull request (kept
+	// and marked delivered), one updated at `until` (dropped, exclusive end),
+	// then one updated before `since` — which stops the walk, so the cursor is
+	// never followed.
 	body := `{"data":{"viewer":{
 		"login":"octocat",
 		"pullRequests":{
 			"pageInfo":{"hasNextPage":true,"endCursor":"NEXT"},
 			"nodes":[
-				{"number":9,"title":"Bump linter","body":"desc","url":"https://x/9","state":"OPEN","isDraft":true,"updatedAt":"2026-07-19T12:00:00Z","repository":{"nameWithOwner":"acme/tools","owner":{"login":"acme"}}},
+				{"number":9,"title":"Bump linter","body":"desc","url":"https://x/9","state":"OPEN","headRefName":"chore/linter","isDraft":true,"updatedAt":"2026-07-19T12:00:00Z","repository":{"nameWithOwner":"acme/tools","owner":{"login":"acme"}}},
 				{"number":8,"title":"Elsewhere","body":"","url":"https://x/8","state":"OPEN","isDraft":false,"updatedAt":"2026-07-19T11:00:00Z","repository":{"nameWithOwner":"other/app","owner":{"login":"other"}}},
-				{"number":7,"title":"Release 2026-07-19","body":"","url":"https://x/7","state":"MERGED","isDraft":false,"updatedAt":"2026-07-19T10:00:00Z","repository":{"nameWithOwner":"acme/app","owner":{"login":"acme"}}},
+				{"number":7,"title":"Cut the sprint","body":"","url":"https://x/7","state":"MERGED","headRefName":"release/2026-07-19","isDraft":false,"updatedAt":"2026-07-19T10:00:00Z","repository":{"nameWithOwner":"acme/app","owner":{"login":"acme"}}},
 				{"number":6,"title":"Next month","body":"","url":"https://x/6","state":"OPEN","isDraft":false,"updatedAt":"2026-07-20T00:00:00Z","repository":{"nameWithOwner":"acme/app","owner":{"login":"acme"}}},
 				{"number":5,"title":"Too old","body":"","url":"https://x/5","state":"MERGED","isDraft":false,"updatedAt":"2026-07-18T23:00:00Z","repository":{"nameWithOwner":"acme/app","owner":{"login":"acme"}}}
 			]
@@ -339,13 +282,18 @@ func TestMyPullRequests_FiltersAndStopsOnOldPull(t *testing.T) {
 	if digest.Login != "octocat" || digest.Org != "acme" {
 		t.Errorf("digest = %+v, want login octocat in org acme", digest)
 	}
-	if len(digest.PullRequests) != 1 {
-		t.Fatalf("got %d pull requests, want 1: %+v", len(digest.PullRequests), digest.PullRequests)
+	if len(digest.PullRequests) != 2 {
+		t.Fatalf("got %d pull requests, want 2: %+v", len(digest.PullRequests), digest.PullRequests)
 	}
 	pr := digest.PullRequests[0]
 	if pr.Number != 9 || pr.Repo != "acme/tools" || pr.Title != "Bump linter" ||
-		pr.Body != "desc" || pr.URL != "https://x/9" || pr.State != "OPEN" || !pr.Draft {
+		pr.Body != "desc" || pr.URL != "https://x/9" || pr.State != "OPEN" ||
+		pr.Branch != "chore/linter" || !pr.Draft || pr.Delivered {
 		t.Errorf("pull request = %+v, unexpected fields", pr)
+	}
+	// The release branch is a delivery, so it is reported and flagged.
+	if rel := digest.PullRequests[1]; rel.Number != 7 || rel.Branch != "release/2026-07-19" || !rel.Delivered {
+		t.Errorf("pull request[1] = %+v, want the release branch marked delivered", rel)
 	}
 
 	// The walk stopped at the out-of-window pull request, so despite

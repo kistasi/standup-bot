@@ -16,8 +16,14 @@ type PullRequest struct {
 	Body      string // the PR description (may be empty)
 	URL       string
 	State     string // "OPEN", "CLOSED", or "MERGED"
+	Branch    string // the head branch the pull request was opened from
 	Draft     bool   // a draft (work-in-progress) pull request
 	UpdatedAt time.Time
+
+	// Delivered marks a release: a pull request opened from a release branch (or
+	// titled as a release). Cutting one is how work reaches production, so these
+	// are reported as delivered rather than dropped as automation noise.
+	Delivered bool
 }
 
 // PullRequestDigest is the result of scanning the viewer's pull requests.
@@ -29,14 +35,15 @@ type PullRequestDigest struct {
 
 // pullNode mirrors one node in the viewer's pullRequests connection.
 type pullNode struct {
-	Number     githubv4.Int
-	Title      githubv4.String
-	Body       githubv4.String
-	URL        githubv4.String `graphql:"url"`
-	State      githubv4.String
-	IsDraft    githubv4.Boolean
-	UpdatedAt  githubv4.DateTime
-	Repository struct {
+	Number      githubv4.Int
+	Title       githubv4.String
+	Body        githubv4.String
+	URL         githubv4.String `graphql:"url"`
+	State       githubv4.String
+	HeadRefName githubv4.String
+	IsDraft     githubv4.Boolean
+	UpdatedAt   githubv4.DateTime
+	Repository  struct {
 		NameWithOwner githubv4.String
 		Owner         struct {
 			Login githubv4.String
@@ -45,8 +52,8 @@ type pullNode struct {
 }
 
 // MyPullRequests returns the pull requests authored by the PAT owner (the
-// GraphQL "viewer") in org that were updated in [since, until). It complements
-// MyProjectItems, which only sees pull requests added to the project board.
+// GraphQL "viewer") in org that were updated in [since, until). Together with
+// OrgCommits it is the whole digest: the report follows the code, not the board.
 //
 // The connection is walked newest-updated first, so the scan stops as soon as
 // it reaches a pull request updated before `since`. Pull requests updated at or
@@ -100,7 +107,8 @@ func (c *Client) MyPullRequests(ctx context.Context, org string, since, until ti
 }
 
 // toPullRequest flattens a node, returning ok=false when it belongs to another
-// organization, was updated at or after until, or is release automation.
+// organization or was updated at or after until. A release pull request is kept
+// and marked Delivered — it is the delivery, not noise.
 func (n pullNode) toPullRequest(org string, until time.Time) (PullRequest, bool) {
 	if !strings.EqualFold(string(n.Repository.Owner.Login), org) {
 		return PullRequest{}, false
@@ -108,9 +116,7 @@ func (n pullNode) toPullRequest(org string, until time.Time) (PullRequest, bool)
 	if !n.UpdatedAt.Time.Before(until) {
 		return PullRequest{}, false
 	}
-	if isReleaseCommit(string(n.Title)) {
-		return PullRequest{}, false
-	}
+	branch := string(n.HeadRefName)
 	return PullRequest{
 		Repo:      string(n.Repository.NameWithOwner),
 		Number:    int(n.Number),
@@ -118,7 +124,9 @@ func (n pullNode) toPullRequest(org string, until time.Time) (PullRequest, bool)
 		Body:      string(n.Body),
 		URL:       string(n.URL),
 		State:     string(n.State),
+		Branch:    branch,
 		Draft:     bool(n.IsDraft),
 		UpdatedAt: n.UpdatedAt.Time,
+		Delivered: isReleaseBranch(branch) || isReleaseCommit(string(n.Title)),
 	}, true
 }
