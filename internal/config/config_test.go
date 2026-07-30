@@ -12,7 +12,6 @@ func setAll(t *testing.T) {
 	t.Helper()
 	t.Setenv("GH_PAT", "token123")
 	t.Setenv("GH_ORG", "acme")
-	t.Setenv("GH_PROJECT", "42")
 	t.Setenv("AUTHOR_EMAILS", "a@example.com, b@example.com")
 	t.Setenv("SLACK_WEBHOOK_URL", "")
 	t.Setenv("GOOGLE_CREDENTIALS_JSON", "")
@@ -32,9 +31,6 @@ func TestLoad_Valid(t *testing.T) {
 	}
 	if cfg.Org != "acme" {
 		t.Errorf("Org = %q, want %q", cfg.Org, "acme")
-	}
-	if cfg.ProjectNumber != 42 {
-		t.Errorf("ProjectNumber = %d, want 42", cfg.ProjectNumber)
 	}
 	want := []string{"a@example.com", "b@example.com"}
 	if len(cfg.AuthorEmails) != len(want) {
@@ -195,7 +191,7 @@ func TestLoad_CalendarPartialErrors(t *testing.T) {
 }
 
 func TestLoad_MissingRequired(t *testing.T) {
-	for _, key := range []string{"GH_PAT", "GH_ORG", "GH_PROJECT", "AUTHOR_EMAILS"} {
+	for _, key := range []string{"GH_PAT", "GH_ORG", "AUTHOR_EMAILS"} {
 		t.Run(key, func(t *testing.T) {
 			setAll(t)
 			t.Setenv(key, "") // requireEnv treats empty/whitespace as unset
@@ -218,19 +214,6 @@ func TestLoad_WhitespaceOnlyRequiredIsMissing(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("Load() error = nil, want error for whitespace-only GH_ORG")
-	}
-}
-
-func TestLoad_MalformedProject(t *testing.T) {
-	setAll(t)
-	t.Setenv("GH_PROJECT", "not-a-number")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() error = nil, want error for non-integer GH_PROJECT")
-	}
-	if !strings.Contains(err.Error(), "GH_PROJECT") {
-		t.Errorf("Load() error = %q, want it to name GH_PROJECT", err)
 	}
 }
 

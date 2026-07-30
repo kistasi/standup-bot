@@ -14,17 +14,28 @@ import (
 // reaches back across the weekend.
 func StandupSystem(period string) string {
 	return "You are a standup assistant. Given a plain-text digest " +
-		"of a developer's GitHub project items, commits, and calendar " +
+		"of a developer's GitHub pull requests, commits, and calendar " +
 		"events (meetings attended), write " +
 		"a concise first-person standup update. Begin the message with exactly the " +
 		"lines \"Hi Team,\" and \"My " + period + " was about:\" separated by a blank " +
 		"line (two newlines after \"Hi Team,\") and nothing before it. Group " +
 		"related work, lead with what shipped, and keep it to a few short bullet " +
-		"points. Report only work that was actually done: omit items that were " +
-		"merely created or opened for future work (newly filed issues, tickets, " +
-		"or PRs with no substantive progress). Omit noise and links. End the " +
+		"points. " + deliveredRule +
+		"Cite the pull requests behind each bullet as markdown links on their " +
+		"titles, e.g. \"[Fix login bug](url)\"; link pull requests only, not " +
+		"commits. Report only work that was actually done: omit items that were " +
+		"merely created or opened for future work (pull requests with no " +
+		"substantive progress). Omit noise. End the " +
 		"message with exactly the line \"Have a nice day!\" and nothing after it."
 }
+
+// deliveredRule explains render's DELIVERED marker. Both prompts share it: a
+// release branch is how work reaches production, so it must be reported as
+// delivered rather than as one more merged pull request.
+const deliveredRule = "A digest line ending in \"DELIVERED\" is a release — a " +
+	"pull request from a release branch, or a release commit. Report those " +
+	"explicitly as delivered (shipped to production), and say what the release " +
+	"contained where the digest shows it. "
 
 // MonthlySystem is the system instruction for turning a month's digest into a
 // written markdown report. period names the month covered, e.g. "June 2026".
@@ -32,23 +43,21 @@ func StandupSystem(period string) string {
 // file rather than posted as a chat message.
 func MonthlySystem(period string) string {
 	return "You are an engineering reporting assistant. Given a plain-text " +
-		"digest of a developer's GitHub project items, pull requests, and " +
-		"commits for " + period +
+		"digest of a developer's GitHub pull requests and commits for " + period +
 		", write a first-person monthly report in GitHub-flavored markdown. " +
-		"Each project item line names its type — Issue or DraftIssue (a ticket) " +
-		"or PullRequest — followed by its state, title, and URL; the pull " +
-		"request section that follows holds further pull requests that were " +
-		"never added to the board, and counts for just as much. " +
+		"Each pull request line carries its repository, state, head branch, " +
+		"title, and URL; the commit section that follows records the code " +
+		"behind them. " + deliveredRule +
 		"Begin with exactly the heading \"# " + period + "\" and nothing before " +
 		"it. Organize the work into a handful of themed sections (\"## \" " +
 		"headings) covering what shipped, what progressed, and anything left " +
 		"open, each with short bullet points; add a brief summary paragraph " +
-		"under the top heading. Group related commits and tickets into one " +
+		"under the top heading. Group related commits and pull requests into one " +
 		"entry rather than listing them mechanically, and describe outcomes " +
 		"rather than restating commit messages. Every bullet must cite the " +
-		"tickets and pull requests behind it as markdown links on their titles, " +
-		"e.g. \"[Fix login bug](url)\"; name a draft ticket without a link, " +
-		"since drafts have no URL. Report only work that was " +
+		"pull requests behind it as markdown links on their titles, " +
+		"e.g. \"[Fix login bug](url)\"; link pull requests only, not commits. " +
+		"Report only work that was " +
 		"actually done: omit items that were merely created or opened for " +
 		"future work. Omit noise. Write nothing after the final section."
 }

@@ -5,7 +5,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,10 +13,9 @@ import (
 
 // Config holds everything main needs to assemble and render a digest.
 type Config struct {
-	GitHubToken   string   // GH_PAT
-	Org           string   // GH_ORG
-	ProjectNumber int      // GH_PROJECT
-	AuthorEmails  []string // AUTHOR_EMAILS
+	GitHubToken  string   // GH_PAT
+	Org          string   // GH_ORG
+	AuthorEmails []string // AUTHOR_EMAILS
 
 	// SlackWebhookURL is optional: when set, the summary is posted to the Slack
 	// incoming webhook; when empty, it is only printed.
@@ -69,14 +67,6 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	projectRaw, err := requireEnv("GH_PROJECT")
-	if err != nil {
-		return nil, err
-	}
-	project, err := strconv.Atoi(projectRaw)
-	if err != nil {
-		return nil, fmt.Errorf("GH_PROJECT %q: %w", projectRaw, err)
-	}
 	emailsRaw, err := requireEnv("AUTHOR_EMAILS")
 	if err != nil {
 		return nil, err
@@ -104,7 +94,6 @@ func Load() (*Config, error) {
 	return &Config{
 		GitHubToken:           token,
 		Org:                   org,
-		ProjectNumber:         project,
 		AuthorEmails:          emails,
 		SlackWebhookURL:       strings.TrimSpace(os.Getenv("SLACK_WEBHOOK_URL")),
 		GoogleCredentialsJSON: credsJSON,

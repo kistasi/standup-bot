@@ -13,16 +13,17 @@ import (
 
 const timeLayout = "2006-01-02 15:04"
 
-// Digest renders the project items, pull requests, commits, then calendar
-// events as one report. Both pulls and events may be nil — the standup passes
-// no pull requests, and events is nil when Google Calendar is not configured —
-// in which case that section is omitted.
-func Digest(project *gh.ProjectDigest, pulls *gh.PullRequestDigest, commits *gh.CommitDigest, events *gcal.Digest, number int, since time.Time) string {
+// delivered is the marker appended to a release pull request or commit line.
+// The summarizer is told to read it as "this shipped".
+const delivered = "\tDELIVERED"
+
+// Digest renders the pull requests, commits, then calendar events as one
+// report. events may be nil — it is when Google Calendar is not configured — in
+// which case that section is omitted. Tickets are deliberately not part of the
+// digest: the report follows the code that was written and released.
+func Digest(pulls *gh.PullRequestDigest, commits *gh.CommitDigest, events *gcal.Digest, since time.Time) string {
 	var b strings.Builder
-	writeProject(&b, project, number, since)
-	if pulls != nil {
-		writePulls(&b, pulls, project, since)
-	}
+	writePulls(&b, pulls, since)
 	writeCommits(&b, commits, since)
 	if events != nil {
 		writeEvents(&b, events, since)
@@ -30,59 +31,30 @@ func Digest(project *gh.ProjectDigest, pulls *gh.PullRequestDigest, commits *gh.
 	return b.String()
 }
 
-// writeProject renders a project digest. Each line carries the item's type
-// ("Issue", "PullRequest", "DraftIssue") so a summarizer can tell tickets and
-// pull requests apart and cite them separately.
-func writeProject(b *strings.Builder, d *gh.ProjectDigest, number int, since time.Time) {
-	for _, item := range d.Items {
-		url := item.URL
-		if url == "" {
-			url = "(draft)"
-		}
-		fmt.Fprintf(b, "[%s]\t%s\t%s\t%s\t%s\n",
-			item.UpdatedAt.Local().Format(timeLayout), item.Type, item.State, item.Title, url)
-		writeBody(b, item.Body)
-	}
-
-	fmt.Fprintf(b, "\n%d item(s) assigned to %s updated since %s in project #%d %q\n",
-		len(d.Items), d.Login, since.Local().Format(timeLayout), number, d.Title)
-}
-
-// writePulls renders the viewer's pull requests, skipping any already listed in
-// the project section: a pull request on the board would otherwise be reported
-// twice, once per section.
-func writePulls(b *strings.Builder, d *gh.PullRequestDigest, project *gh.ProjectDigest, since time.Time) {
-	onBoard := make(map[string]bool, len(project.Items))
-	for _, item := range project.Items {
-		if item.URL != "" {
-			onBoard[item.URL] = true
-		}
-	}
-
-	n := 0
+// writePulls renders the viewer's pull requests. A pull request opened from a
+// release branch carries the DELIVERED marker and its branch name, so the
+// summarizer can report it as shipped.
+func writePulls(b *strings.Builder, d *gh.PullRequestDigest, since time.Time) {
 	for _, pr := range d.PullRequests {
-		if onBoard[pr.URL] {
-			continue
-		}
-		n++
 		state := pr.State
 		if pr.Draft {
 			state += " (draft)"
 		}
-		fmt.Fprintf(b, "[%s]\tPullRequest\t%s\t%s\t%s\t%s\n",
-			pr.UpdatedAt.Local().Format(timeLayout), pr.Repo, state, pr.Title, pr.URL)
+		fmt.Fprintf(b, "[%s]\tPullRequest\t%s\t%s\t%s\t%s\t%s%s\n",
+			pr.UpdatedAt.Local().Format(timeLayout), pr.Repo, state, pr.Branch,
+			pr.Title, pr.URL, mark(pr.Delivered))
 		writeBody(b, pr.Body)
 	}
 
-	fmt.Fprintf(b, "\n%d further pull request(s) by %s in %s updated since %s, not on the project board\n",
-		n, d.Login, d.Org, since.Local().Format(timeLayout))
+	fmt.Fprintf(b, "\n%d pull request(s) by %s in %s updated since %s\n",
+		len(d.PullRequests), d.Login, d.Org, since.Local().Format(timeLayout))
 }
 
-// writeCommits renders a commit digest.
+// writeCommits renders a commit digest, marking release commits DELIVERED.
 func writeCommits(b *strings.Builder, d *gh.CommitDigest, since time.Time) {
 	for _, c := range d.Commits {
-		fmt.Fprintf(b, "[%s]\t%s\t%s\t%s\n",
-			c.CommittedDate.Local().Format(timeLayout), c.Repo, c.Message, c.URL)
+		fmt.Fprintf(b, "[%s]\t%s\t%s\t%s%s\n",
+			c.CommittedDate.Local().Format(timeLayout), c.Repo, c.Message, c.URL, mark(c.Delivered))
 		writeBody(b, c.Body)
 	}
 
@@ -100,6 +72,14 @@ func writeEvents(b *strings.Builder, d *gcal.Digest, since time.Time) {
 
 	fmt.Fprintf(b, "\n%d calendar event(s) in %s since %s\n",
 		len(d.Events), d.CalendarID, since.Local().Format(timeLayout))
+}
+
+// mark returns the trailing DELIVERED marker for a released entry, or nothing.
+func mark(isDelivered bool) string {
+	if isDelivered {
+		return delivered
+	}
+	return ""
 }
 
 // writeBody renders a trimmed description block indented under its entry, or

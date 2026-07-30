@@ -58,120 +58,118 @@ func TestIsReleaseCommit(t *testing.T) {
 	}
 }
 
-// issueNode builds an Issue/PullRequest itemNode with a single assignee.
-func issueNode(typename, title, body, url, state, assignee string, updated time.Time) itemNode {
-	c := issueContent{
-		Title:     githubv4.String(title),
-		Body:      githubv4.String(body),
-		URL:       githubv4.String(url),
-		State:     githubv4.String(state),
-		UpdatedAt: githubv4.DateTime{Time: updated},
+func TestIsReleaseBranch(t *testing.T) {
+	tests := []struct {
+		ref  string
+		want bool
+	}{
+		{"release", true},
+		{"releases", true},
+		{"release/2026-07-20", true},
+		{"release-1.2.3", true},
+		{"release_1.2.3", true},
+		{"release.1", true},
+		{"releases/1.2.3", true},
+		{"RELEASE/1.2.3", true},
+		{" release/1.2.3 ", true}, // whitespace is trimmed
+		{"released", false},       // no separator after the prefix
+		{"releasing", false},
+		{"feature/release-notes", false},
+		{"main", false},
+		{"", false},
 	}
-	c.Assignees.Nodes = []struct{ Login githubv4.String }{{Login: githubv4.String(assignee)}}
+	for _, tt := range tests {
+		if got := isReleaseBranch(tt.ref); got != tt.want {
+			t.Errorf("isReleaseBranch(%q) = %v, want %v", tt.ref, got, tt.want)
+		}
+	}
+}
 
-	var n itemNode
-	n.Content.Typename = githubv4.String(typename)
-	if typename == "PullRequest" {
-		n.Content.PullRequest = c
-	} else {
-		n.Content.Issue = c
-	}
+// pullRequestNode builds a pullNode in org "acme" with the given branch/title.
+func pullRequestNode(title, branch string, updated time.Time) pullNode {
+	var n pullNode
+	n.Title = githubv4.String(title)
+	n.HeadRefName = githubv4.String(branch)
+	n.State = "MERGED"
+	n.URL = "https://x/1"
+	n.UpdatedAt = githubv4.DateTime{Time: updated}
+	n.Repository.NameWithOwner = "acme/app"
+	n.Repository.Owner.Login = "acme"
 	return n
 }
 
-func draftNode(title, body, assignee string, updated time.Time) itemNode {
-	c := draftContent{
-		Title:     githubv4.String(title),
-		Body:      githubv4.String(body),
-		UpdatedAt: githubv4.DateTime{Time: updated},
-	}
-	c.Assignees.Nodes = []struct{ Login githubv4.String }{{Login: githubv4.String(assignee)}}
+func TestToPullRequest_Delivered(t *testing.T) {
+	updated := time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC)
+	until := updated.Add(time.Hour)
 
-	var n itemNode
-	n.Content.Typename = "DraftIssue"
-	n.Content.DraftIssue = c
-	return n
-}
+	t.Run("release branch is kept and marked delivered", func(t *testing.T) {
+		pr, ok := pullRequestNode("Merge for the sprint", "release/2026-07-20", updated).toPullRequest("acme", until)
+		if !ok {
+			t.Fatal("ok = false, want true: a release pull request is delivered work, not noise")
+		}
+		if !pr.Delivered {
+			t.Error("Delivered = false, want true for a release branch")
+		}
+		if pr.Branch != "release/2026-07-20" {
+			t.Errorf("Branch = %q, want release/2026-07-20", pr.Branch)
+		}
+	})
 
-func TestToItem(t *testing.T) {
-	since := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
-	until := since.Add(24 * time.Hour)
-	recent := since.Add(time.Hour)
-	old := since.Add(-time.Hour)
+	t.Run("release title is marked delivered", func(t *testing.T) {
+		pr, ok := pullRequestNode("Release 2026-07-20", "hotfix", updated).toPullRequest("acme", until)
+		if !ok || !pr.Delivered {
+			t.Errorf("pr = %+v, ok = %v; want a delivered pull request", pr, ok)
+		}
+	})
 
-	t.Run("issue assigned to viewer is kept", func(t *testing.T) {
-		n := issueNode("Issue", "Bug", "desc", "https://x/1", "OPEN", "octocat", recent)
-		item, ok := n.toItem("octocat", since, until)
+	t.Run("ordinary branch is not delivered", func(t *testing.T) {
+		pr, ok := pullRequestNode("Add retry logic", "feature/retries", updated).toPullRequest("acme", until)
 		if !ok {
 			t.Fatal("ok = false, want true")
 		}
-		if item.Type != "Issue" || item.Title != "Bug" || item.Body != "desc" ||
-			item.URL != "https://x/1" || item.State != "OPEN" || !item.UpdatedAt.Equal(recent) {
-			t.Errorf("item = %+v, unexpected fields", item)
+		if pr.Delivered {
+			t.Error("Delivered = true, want false for a feature branch")
 		}
 	})
 
-	t.Run("pull request reads PullRequest fragment", func(t *testing.T) {
-		n := issueNode("PullRequest", "Add feature", "b", "https://x/2", "MERGED", "octocat", recent)
-		item, ok := n.toItem("octocat", since, until)
-		if !ok || item.Type != "PullRequest" || item.Title != "Add feature" || item.State != "MERGED" {
-			t.Errorf("item = %+v, ok = %v; want PullRequest fields", item, ok)
+	t.Run("other org is dropped", func(t *testing.T) {
+		n := pullRequestNode("Add retry logic", "main", updated)
+		n.Repository.Owner.Login = "other"
+		if _, ok := n.toPullRequest("acme", until); ok {
+			t.Error("ok = true, want false for another organization")
 		}
 	})
 
-	t.Run("draft issue has DRAFT state and no url", func(t *testing.T) {
-		n := draftNode("Idea", "notes", "octocat", recent)
-		item, ok := n.toItem("octocat", since, until)
-		if !ok {
-			t.Fatal("ok = false, want true")
-		}
-		if item.Type != "DraftIssue" || item.State != "DRAFT" || item.URL != "" {
-			t.Errorf("item = %+v, want DraftIssue/DRAFT/empty-url", item)
-		}
-	})
-
-	t.Run("not assigned to viewer is dropped", func(t *testing.T) {
-		n := issueNode("Issue", "Bug", "d", "https://x/1", "OPEN", "someone-else", recent)
-		if _, ok := n.toItem("octocat", since, until); ok {
-			t.Error("ok = true, want false for item assigned to another user")
-		}
-	})
-
-	t.Run("updated before since is dropped", func(t *testing.T) {
-		n := issueNode("Issue", "Bug", "d", "https://x/1", "OPEN", "octocat", old)
-		if _, ok := n.toItem("octocat", since, until); ok {
-			t.Error("ok = true, want false for stale item")
-		}
-	})
-
-	t.Run("updated exactly at since is kept", func(t *testing.T) {
-		n := issueNode("Issue", "Bug", "d", "https://x/1", "OPEN", "octocat", since)
-		if _, ok := n.toItem("octocat", since, until); !ok {
-			t.Error("ok = false, want true when UpdatedAt == since")
-		}
-	})
-
-	// The window is half-open, so an item updated at `until` belongs to the next
-	// window (the monthly report relies on this to not double-count).
-	t.Run("updated exactly at until is dropped", func(t *testing.T) {
-		n := issueNode("Issue", "Bug", "d", "https://x/1", "OPEN", "octocat", until)
-		if _, ok := n.toItem("octocat", since, until); ok {
+	// The window is half-open, so a pull request updated at `until` belongs to
+	// the next window.
+	t.Run("updated at until is dropped", func(t *testing.T) {
+		if _, ok := pullRequestNode("Add retry logic", "main", until).toPullRequest("acme", until); ok {
 			t.Error("ok = true, want false when UpdatedAt == until")
 		}
 	})
+}
 
-	t.Run("updated after until is dropped", func(t *testing.T) {
-		n := issueNode("Issue", "Bug", "d", "https://x/1", "OPEN", "octocat", until.Add(time.Hour))
-		if _, ok := n.toItem("octocat", since, until); ok {
-			t.Error("ok = true, want false for item past the window")
-		}
+func TestAppendCommits_KeepsReleasesDropsMerges(t *testing.T) {
+	node := func(headline string, parents int) commitNode {
+		var n commitNode
+		n.MessageHeadline = githubv4.String(headline)
+		n.Parents.TotalCount = githubv4.Int(parents)
+		return n
+	}
+
+	got := appendCommits(nil, "acme/app", []commitNode{
+		node("Add retry logic", 1),
+		node("Release 2026-07-19 (#9)", 1),
+		node("Merge branch main", 2),
 	})
 
-	t.Run("unknown typename is dropped", func(t *testing.T) {
-		var n itemNode
-		n.Content.Typename = "" // e.g. a redacted item the PAT can't see
-		if _, ok := n.toItem("octocat", since, until); ok {
-			t.Error("ok = true, want false for empty typename")
-		}
-	})
+	if len(got) != 2 {
+		t.Fatalf("got %d commits, want 2 (merge dropped, release kept): %+v", len(got), got)
+	}
+	if got[0].Delivered {
+		t.Error("commit[0].Delivered = true, want false for an ordinary commit")
+	}
+	if !got[1].Delivered {
+		t.Error("commit[1].Delivered = false, want true for a release commit")
+	}
 }

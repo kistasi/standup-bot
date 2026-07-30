@@ -8,10 +8,28 @@ import (
 	"github.com/shurcooL/githubv4"
 )
 
-// isReleaseCommit reports whether a commit headline is an automated release
-// commit (e.g. "Release 2026-07-20 (#506)"), which is noise in a standup.
+// isReleaseCommit reports whether a commit headline is a release commit (e.g.
+// "Release 2026-07-20 (#506)") — cutting a release is delivered work, so these
+// are kept and flagged rather than dropped.
 func isReleaseCommit(headline string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(headline)), "release ")
+}
+
+// isReleaseBranch reports whether a branch name is a release branch: "release"
+// itself, or a name under a "release"/"releases" prefix separated by "/", "-",
+// "_" or "." (e.g. "release/2026-07-20", "releases-1.2.3"). Work on such a
+// branch counts as delivered.
+func isReleaseBranch(ref string) bool {
+	ref = strings.ToLower(strings.TrimSpace(ref))
+	rest, ok := strings.CutPrefix(ref, "release")
+	if !ok {
+		return false
+	}
+	rest = strings.TrimPrefix(rest, "s") // "releases/..." as well as "release/..."
+	if rest == "" {
+		return true
+	}
+	return strings.ContainsRune("/-_.", rune(rest[0]))
 }
 
 // Commit is a single commit authored by one of the requested emails.
@@ -22,6 +40,10 @@ type Commit struct {
 	Body          string // the commit message body (everything after the headline)
 	URL           string
 	CommittedDate time.Time
+
+	// Delivered marks a release commit: work that reached a release rather than
+	// only landing on the default branch.
+	Delivered bool
 }
 
 // CommitDigest is the result of scanning an org's repositories for commits.
@@ -179,11 +201,12 @@ func (c *Client) repoCommits(ctx context.Context, nameWithOwner string, since, u
 	}
 }
 
-// appendCommits flattens one page of history onto commits, skipping release
-// automation and merge commits (2+ parents): both are noise in a standup.
+// appendCommits flattens one page of history onto commits, skipping merge
+// commits (2+ parents) as noise. Release commits are kept and marked Delivered:
+// they are the record of what actually shipped.
 func appendCommits(commits []Commit, repo string, nodes []commitNode) []Commit {
 	for _, node := range nodes {
-		if isReleaseCommit(string(node.MessageHeadline)) || node.Parents.TotalCount > 1 {
+		if node.Parents.TotalCount > 1 {
 			continue
 		}
 		commits = append(commits, Commit{
@@ -193,6 +216,7 @@ func appendCommits(commits []Commit, repo string, nodes []commitNode) []Commit {
 			Body:          string(node.MessageBody),
 			URL:           string(node.URL),
 			CommittedDate: node.CommittedDate.Time,
+			Delivered:     isReleaseCommit(string(node.MessageHeadline)),
 		})
 	}
 	return commits

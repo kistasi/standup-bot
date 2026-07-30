@@ -38,7 +38,9 @@ func dispatch(args []string) error {
 	}
 }
 
-// run assembles the digest and feeds it to Claude for a standup summary.
+// run assembles the digest — pull requests and commits, plus meetings when the
+// calendar is on — and feeds it to Claude for a standup summary. Project
+// tickets are deliberately not part of it: the report follows the code.
 func run() error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -53,7 +55,7 @@ func run() error {
 	now := time.Now()
 	since, until := cfg.Since(), now
 
-	project, err := client.MyProjectItems(ctx, cfg.Org, cfg.ProjectNumber, since, until)
+	pulls, err := client.MyPullRequests(ctx, cfg.Org, since, until)
 	if err != nil {
 		return err
 	}
@@ -78,7 +80,7 @@ func run() error {
 		}
 	}
 
-	digest := render.Digest(project, nil, commits, events, cfg.ProjectNumber, since)
+	digest := render.Digest(pulls, commits, events, since)
 
 	summary, err := claude.New().Ask(ctx, claude.StandupSystem(cfg.PeriodLabel()), digest)
 	if err != nil {
@@ -146,14 +148,6 @@ func runMonthly() error {
 	client := gh.New(cfg.GitHubToken)
 
 	fmt.Fprintf(os.Stderr, "Collecting %s activity...\n", label)
-	project, err := client.MyProjectItems(ctx, cfg.Org, cfg.ProjectNumber, since, until)
-	if err != nil {
-		return err
-	}
-
-	// Unlike the standup, the monthly report also covers pull requests that were
-	// never added to the project board; render drops the ones already listed
-	// above.
 	pulls, err := client.MyPullRequests(ctx, cfg.Org, since, until)
 	if err != nil {
 		return err
@@ -164,7 +158,7 @@ func runMonthly() error {
 		return err
 	}
 
-	digest := render.Digest(project, pulls, commits, nil, cfg.ProjectNumber, since)
+	digest := render.Digest(pulls, commits, nil, since)
 
 	fmt.Fprintln(os.Stderr, "Writing the report...")
 	report, err := claude.New().Ask(ctx, claude.MonthlySystem(label), digest)

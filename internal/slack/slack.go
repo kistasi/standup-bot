@@ -18,11 +18,19 @@ import (
 // showing literally.
 var boldRe = regexp.MustCompile(`\*\*(.+?)\*\*`)
 
+// linkRe matches standard-Markdown [text](url) links, which the standup prompt
+// asks for on pull request titles. Slack's mrkdwn spells them <url|text>, so
+// the Markdown form would otherwise render with its brackets showing literally.
+// The URL is matched without spaces or a closing paren, so prose containing
+// "[…] (…)" is left alone.
+var linkRe = regexp.MustCompile(`\[([^\]]+)\]\((\S+?)\)`)
+
 // toMrkdwn converts the subset of standard Markdown that Claude emits into
-// Slack's mrkdwn dialect. Only bold differs for our content: `code` spans use
-// single backticks in both, and links are omitted by the standup prompt.
+// Slack's mrkdwn dialect: bold and links. `code` spans use single backticks in
+// both, so they need no conversion.
 func toMrkdwn(text string) string {
-	return boldRe.ReplaceAllString(text, "*$1*")
+	text = boldRe.ReplaceAllString(text, "*$1*")
+	return linkRe.ReplaceAllString(text, "<$2|$1>")
 }
 
 // Client posts messages to a single Slack incoming webhook.

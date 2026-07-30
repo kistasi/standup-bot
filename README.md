@@ -2,22 +2,27 @@
 
 I'm too lazy to summarize stuff myself.
 
-`standup-bot` assembles a standup digest from your GitHub project activity —
-the project items and commits you touched since your last standup, plus the
-meetings you attended when Google Calendar is configured — summarizes it
+`standup-bot` assembles a standup digest from the code you wrote — the pull
+requests you opened and the commits you authored since your last standup, plus
+the meetings you attended when Google Calendar is configured — summarizes it
 with Claude, prints the result, and (optionally) posts it to Slack.
+
+Tickets are deliberately out of scope: the digest follows commits and pull
+requests, and anything on a **release branch** is reported as *delivered*.
 
 It also writes a **monthly report** on demand — see [Monthly report](#monthly-report).
 
 ## How it works
 
 1. Load config from the environment (`.env` in development).
-2. Fetch your [ProjectV2](https://docs.github.com/en/issues/planning-and-tracking-with-projects)
-   items and recent org commits since your last standup via the GitHub GraphQL API.
+2. Fetch your pull requests and recent org commits since your last standup via
+   the GitHub GraphQL API. A pull request opened from a release branch (or
+   titled `Release …`), and a release commit, are flagged as delivered.
 3. When Google Calendar is configured, fetch the events in the same window
    (declined and all-day events are skipped).
 4. Render them into a plain-text digest.
-5. Feed the digest to Claude for a standup-style summary.
+5. Feed the digest to Claude for a standup-style summary, which links the pull
+   requests behind each bullet and calls out what was delivered.
 6. Print the summary, and post it to Slack when `SLACK_WEBHOOK_URL` is set.
 
 ## Setup
@@ -40,7 +45,6 @@ or malformed.
 | `ANTHROPIC_API_KEY`       | Anthropic API key (read automatically by the SDK).                                                                                                   |
 | `GH_PAT`                  | GitHub personal access token.                                                                                                                        |
 | `GH_ORG`                  | GitHub organization to read from.                                                                                                                    |
-| `GH_PROJECT`              | ProjectV2 number (integer).                                                                                                                          |
 | `AUTHOR_EMAILS`           | Comma-separated git author emails to attribute commits to.                                                                                           |
 | `SLACK_WEBHOOK_URL`       | Optional. When set, the summary is posted to this Slack incoming webhook; otherwise it is only printed.                                              |
 | `GOOGLE_CREDENTIALS_JSON` | Optional (paired with `GOOGLE_CALENDAR_ID`). A Google credentials JSON on one line — authorized-user creds (from `gcloud`) or a service-account key. |
@@ -94,8 +98,8 @@ reports/2026-06-monthly-report.md
 ```
 
 Both questions default to the previous month, so pressing enter twice right
-after a month ends does the obvious thing. The report covers the project items
-you touched and the commits you authored between the first instant of that month
+after a month ends does the obvious thing. The report covers the pull requests
+you opened and the commits you authored between the first instant of that month
 and the first instant of the next; it is summarized by Claude as markdown and
 saved to `reports/<year>-<month>-monthly-report.md`, overwriting any earlier run for the same
 month. `reports/` is gitignored.
@@ -121,8 +125,7 @@ make check        # fmt + vet + test
 05:00 UTC = 07:00 Budapest in summer, Mon–Fri) and on demand via
 `workflow_dispatch`. It reads secrets `GH_PAT` / `ANTHROPIC_API_KEY` /
 `SLACK_WEBHOOK_URL` / `GOOGLE_CREDENTIALS_JSON` and repo variables `GH_ORG` /
-`GH_PROJECT` / `AUTHOR_EMAILS` / `GOOGLE_CALENDAR_ID` (the last two of each pair
-optional).
+`AUTHOR_EMAILS` / `GOOGLE_CALENDAR_ID` (the last of each list optional).
 
 The reporting window is derived from the weekday: a weekday run reaches back to
 the previous day, and Monday's run reaches back across the weekend to Friday, so
