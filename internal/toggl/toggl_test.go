@@ -294,6 +294,80 @@ func TestEntries_ContextCanceled(t *testing.T) {
 	}
 }
 
+func TestTickets(t *testing.T) {
+	tests := []struct {
+		name        string
+		description string
+		tags        []string
+		want        []string
+	}{
+		{"leading reference", "#412 refactor auth", nil, []string{"#412"}},
+		{"mid-sentence reference", "pairing on #7 with Dani", nil, []string{"#7"}},
+		{"several references", "#1 and #2", nil, []string{"#1", "#2"}},
+		{"repeated reference counts once", "#5 then more #5", nil, []string{"#5"}},
+		{"reference in a tag", "refactor auth", []string{"#412"}, []string{"#412"}},
+		{"description and tag combine", "#1 work", []string{"#2"}, []string{"#1", "#2"}},
+		{"no reference", "release planning", []string{"internal"}, nil},
+		{"hash without digits", "# planning", nil, nil},
+		{"bare number is not a reference", "412 planning", nil, nil},
+		{"empty", "", nil, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tickets(tt.description, tt.tags)
+			if len(got) != len(tt.want) {
+				t.Fatalf("tickets(%q, %v) = %v, want %v", tt.description, tt.tags, got, tt.want)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Errorf("tickets(%q, %v) = %v, want %v", tt.description, tt.tags, got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+// The unflagged entries are the point of the section: work with no ticket has
+// no commit or pull request either, so nothing else in the digest records it.
+func TestEntries_FlagsAndUnflaggedTotal(t *testing.T) {
+	since, until := window()
+	start := since.Add(time.Hour)
+	stop := func(d time.Duration) string { return start.Add(d).Format(time.RFC3339) }
+
+	body := `[
+		{"description":"#412 fix login","start":"` + start.Format(time.RFC3339) + `","stop":"` + stop(time.Hour) + `","duration":3600,"tags":null},
+		{"description":"release planning","start":"` + start.Format(time.RFC3339) + `","stop":"` + stop(30*time.Minute) + `","duration":1800,"tags":null},
+		{"description":"API research","start":"` + start.Format(time.RFC3339) + `","stop":"` + stop(15*time.Minute) + `","duration":900,"tags":null}
+	]`
+
+	client, _ := captureServer(t, http.StatusOK, body, nil)
+
+	digest, err := client.Entries(context.Background(), since, until)
+	if err != nil {
+		t.Fatalf("Entries error = %v", err)
+	}
+	if len(digest.Entries) != 3 {
+		t.Fatalf("got %d entries, want 3", len(digest.Entries))
+	}
+
+	flagged := 0
+	for _, e := range digest.Entries {
+		if e.Flagged() {
+			flagged++
+		}
+	}
+	if flagged != 1 {
+		t.Errorf("got %d flagged entries, want 1: %+v", flagged, digest.Entries)
+	}
+	if want := 105 * time.Minute; digest.Total != want {
+		t.Errorf("Total = %v, want %v", digest.Total, want)
+	}
+	// Only the two entries naming no ticket count towards Unflagged.
+	if want := 45 * time.Minute; digest.Unflagged != want {
+		t.Errorf("Unflagged = %v, want %v", digest.Unflagged, want)
+	}
+}
+
 func TestLabel(t *testing.T) {
 	tests := []struct {
 		d    time.Duration

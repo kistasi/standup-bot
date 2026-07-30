@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -28,6 +29,11 @@ const Lookback = 3 * 30 * 24 * time.Hour
 // report for an old month is still worth writing without its hours.
 var ErrBeyondLookback = errors.New("start of window is beyond Toggl's ~3-month lookback limit")
 
+// ticketRe matches a GitHub-style ticket reference — "#412" — which is how the
+// owner flags an entry as belonging to a ticket. A reference anywhere in the
+// description or tags counts, since it is often written mid-sentence.
+var ticketRe = regexp.MustCompile(`#\d+\b`)
+
 // Entry is one time entry belonging to the token owner.
 type Entry struct {
 	Description string // may be empty: an entry needs no description
@@ -36,13 +42,24 @@ type Entry struct {
 	Stop        time.Time // zero while the timer is still running
 	Duration    time.Duration
 	Tags        []string
-	Running     bool // the timer had not been stopped when the digest was built
+	Running     bool     // the timer had not been stopped when the digest was built
+	Tickets     []string // the "#412" references found on the entry, in order
+}
+
+// Flagged reports whether the entry names a ticket. An unflagged entry is the
+// interesting case: work with no ticket behind it — planning, research, review —
+// leaves no commit or pull request either, so this section is its only record.
+func (e Entry) Flagged() bool {
+	return len(e.Tickets) > 0
 }
 
 // Digest is the result of reading a window of time entries.
 type Digest struct {
 	Entries []Entry
 	Total   time.Duration // the summed duration of every entry, running included
+
+	// Unflagged is the part of Total spent on entries naming no ticket.
+	Unflagged time.Duration
 }
 
 // Client reads the token owner's time entries.
@@ -136,6 +153,9 @@ func (c *Client) Entries(ctx context.Context, since, until time.Time) (*Digest, 
 		}
 		digest.Entries = append(digest.Entries, entry)
 		digest.Total += entry.Duration
+		if !entry.Flagged() {
+			digest.Unflagged += entry.Duration
+		}
 	}
 	// The API does not promise an order; sort oldest first so the rendered
 	// section reads chronologically and two runs agree.
@@ -183,6 +203,7 @@ func (r entryJSON) toEntry(since, until time.Time) (Entry, bool) {
 		Start:       start,
 		Tags:        r.Tags,
 	}
+	entry.Tickets = tickets(entry.Description, entry.Tags)
 
 	// A running timer reports duration as the negative of its start epoch (the
 	// "-1 convention"), so the field is meaningless until the timer stops. Time
@@ -205,6 +226,21 @@ func (r entryJSON) toEntry(since, until time.Time) (Entry, bool) {
 		entry.Duration = time.Duration(r.Duration) * time.Second
 	}
 	return entry, true
+}
+
+// tickets collects the distinct ticket references on an entry, keeping the
+// order they were written in. Tags are searched as well as the description: a
+// reference is a reference wherever the owner put it.
+func tickets(description string, tags []string) []string {
+	var found []string
+	for _, text := range append([]string{description}, tags...) {
+		for _, ref := range ticketRe.FindAllString(text, -1) {
+			if !slices.Contains(found, ref) {
+				found = append(found, ref)
+			}
+		}
+	}
+	return found
 }
 
 // Label renders a duration as "2h 15m", the form a report reads best. It rounds

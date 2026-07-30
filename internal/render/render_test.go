@@ -211,18 +211,21 @@ func TestDigest_NoEventsSectionWhenNil(t *testing.T) {
 
 func TestDigest_TrackedTime(t *testing.T) {
 	times := &toggl.Digest{
-		Total: 105 * time.Minute,
+		Total:     105 * time.Minute,
+		Unflagged: 15 * time.Minute,
 		Entries: []toggl.Entry{
 			{
-				Description: "Fix login bug",
+				Description: "#412 Fix login bug",
 				Project:     "App",
 				Start:       t1,
 				Stop:        t1.Add(90 * time.Minute),
 				Duration:    90 * time.Minute,
 				Tags:        []string{"dev", "urgent"},
+				Tickets:     []string{"#412"},
 			},
 			{
-				Description: "Standup",
+				// No ticket: the entry no commit will ever account for.
+				Description: "Release planning",
 				Project:     "Internal",
 				Start:       t2,
 				Duration:    15 * time.Minute,
@@ -231,17 +234,49 @@ func TestDigest_TrackedTime(t *testing.T) {
 	}
 	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, times, t1)
 
-	wantLine := "[" + fmtTime(t1) + "]\t1h 30m\tApp\tFix login bug\tdev, urgent\n"
+	// A flagged entry renders plainly...
+	wantLine := "[" + fmtTime(t1) + "]\t1h 30m\tApp\t#412 Fix login bug\tdev, urgent\n"
 	if !strings.Contains(got, wantLine) {
 		t.Errorf("missing time entry line %q in:\n%s", wantLine, got)
 	}
+	// ...an unflagged one carries the marker.
+	wantUnflagged := "[" + fmtTime(t2) + "]\t15m\tInternal\tRelease planning\t\tNO TICKET\n"
+	if !strings.Contains(got, wantUnflagged) {
+		t.Errorf("missing unflagged entry line %q in:\n%s", wantUnflagged, got)
+	}
+	if n := strings.Count(got, "NO TICKET"); n != 1 {
+		t.Errorf("NO TICKET appears %d times, want 1, in:\n%s", n, got)
+	}
+
 	wantFooter := "2 time entries totalling 1h 45m tracked since " + fmtTime(t1)
 	if !strings.Contains(got, wantFooter) {
 		t.Errorf("missing tracked-time footer %q in:\n%s", wantFooter, got)
 	}
+	wantSplit := "1 of them (15m) name no ticket"
+	if !strings.Contains(got, wantSplit) {
+		t.Errorf("missing unflagged split %q in:\n%s", wantSplit, got)
+	}
 	// Tracked time closes the digest, after the commit section.
 	if strings.Index(got, "commit(s) by") > strings.Index(got, "Fix login bug") {
 		t.Error("expected the tracked-time section to render after commits")
+	}
+}
+
+// The footer's unflagged figures are derived from the rendered entries, so a
+// caller-supplied total can never make the summary contradict the lines.
+func TestDigest_UnflaggedFooterFollowsTheEntries(t *testing.T) {
+	times := &toggl.Digest{
+		Total:     time.Hour,
+		Unflagged: 99 * time.Hour, // wrong on purpose
+		Entries: []toggl.Entry{
+			{Description: "#1 tracked", Start: t1, Duration: 30 * time.Minute, Tickets: []string{"#1"}},
+			{Description: "research", Start: t2, Duration: 30 * time.Minute},
+		},
+	}
+	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, times, t1)
+
+	if !strings.Contains(got, "1 of them (30m) name no ticket") {
+		t.Errorf("footer did not follow the rendered entries in:\n%s", got)
 	}
 }
 
@@ -256,7 +291,7 @@ func TestDigest_TrackedTimePlaceholdersAndRunning(t *testing.T) {
 	}
 	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, times, t1)
 
-	wantLine := "[" + fmtTime(t1) + "]\t30m\t(no project)\t(no description)\t\t(still running)\n"
+	wantLine := "[" + fmtTime(t1) + "]\t30m\t(no project)\t(no description)\t\tNO TICKET\t(still running)\n"
 	if !strings.Contains(got, wantLine) {
 		t.Errorf("missing running entry line %q in:\n%s", wantLine, got)
 	}

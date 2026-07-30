@@ -21,7 +21,8 @@ It also writes a **monthly report** on demand — see [Monthly report](#monthly-
    titled `Release …`), and a release commit, are flagged as delivered.
 3. When Google Calendar is configured, fetch the events in the same window
    (declined and all-day events are skipped).
-4. When Toggl is configured, fetch the time entries that started in the window.
+4. When Toggl is configured, fetch the time entries that started in the window,
+   splitting those that name a ticket from those that do not.
 5. Render them into a plain-text digest.
 6. Feed the digest to Claude for a standup-style summary, which links the pull
    requests behind each bullet and calls out what was delivered.
@@ -49,7 +50,7 @@ or malformed.
 | `GH_ORG`                  | GitHub organization to read from.                                                                                                                    |
 | `AUTHOR_EMAILS`           | Comma-separated git author emails to attribute commits to.                                                                                           |
 | `SLACK_WEBHOOK_URL`       | Optional. When set, the summary is posted to this Slack incoming webhook; otherwise it is only printed.                                              |
-| `TOGGL_API_TOKEN`         | Optional. When set, the time you tracked in the window is added to the digest. See [Toggl](#toggl).                                                   |
+| `TOGGL_API_TOKEN`         | Optional. When set, the time you tracked in the window is added to the digest, and entries naming no `#123` ticket are called out. See [Toggl](#toggl). |
 | `GOOGLE_CREDENTIALS_JSON` | Optional (paired with `GOOGLE_CALENDAR_ID`). A Google credentials JSON on one line — authorized-user creds (from `gcloud`) or a service-account key. |
 | `GOOGLE_CALENDAR_ID`      | Optional (paired with `GOOGLE_CREDENTIALS_JSON`). The calendar to read — your email, or `primary`.                                                   |
 
@@ -72,6 +73,23 @@ Two limits of the API are worth knowing, both handled rather than hidden:
   exactly one request (the endpoint has no pagination, and `meta=true` resolves
   project names inline), so a daily standup plus a monthly report is nowhere
   near the ceiling — but repeated CI retries could be.
+
+#### Work with no commit behind it
+
+The main point of the Toggl section is the work that leaves no trace in git:
+planning, research, review, support. The bot finds it by looking for a
+**GitHub-style `#123` reference** in each entry's description or tags:
+
+- An entry that names a ticket — `#412 refactor the auth middleware` — is
+  already covered by the pull requests and commits in the digest.
+- An entry that names none — `release planning` — is marked `NO TICKET`, and
+  both prompts are told it is the *only* record of that work and must be
+  reported from the entry's own description.
+
+The standup folds it into its bullets; the monthly report gives it a section of
+its own, `## Work without a paper trail`, omitted when there is no such work.
+A reference is picked up anywhere in the text, so `pairing on #7 with Dani`
+counts; a bare number (`412 planning`) deliberately does not.
 
 A still-running timer is included and flagged as approximate: its duration is
 measured from its start, because Toggl reports a running entry's `duration` as a

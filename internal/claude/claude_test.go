@@ -117,6 +117,7 @@ func TestMonthlySystem_Anchors(t *testing.T) {
 		"June 2026", "# June 2026", "markdown",
 		"pull request", "DELIVERED", "delivered", "markdown links",
 		"tracked-time", "still running", "Never invent",
+		"NO TICKET", "only record", "## Work without a paper trail",
 	} {
 		if !strings.Contains(sys, anchor) {
 			t.Errorf("MonthlySystem missing required anchor %q", anchor)
@@ -151,6 +152,7 @@ func TestStandupSystem_Anchors(t *testing.T) {
 				"Hi Team,", tt.opening, "Have a nice day!",
 				"DELIVERED", "delivered", "markdown links",
 				"tracked-time", "still running", "Never invent",
+				"NO TICKET", "only record",
 			} {
 				if !strings.Contains(sys, anchor) {
 					t.Errorf("StandupSystem(%q) missing required anchor %q", tt.period, anchor)
