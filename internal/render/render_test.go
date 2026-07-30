@@ -209,9 +209,11 @@ func TestDigest_NoEventsSectionWhenNil(t *testing.T) {
 	}
 }
 
-func TestDigest_TrackedTime(t *testing.T) {
+// Only the entries naming no ticket are rendered. Time logged against a ticket
+// is left out entirely: the pull request and commit sections already cover that
+// work, and no figure for how long it took belongs in the digest.
+func TestDigest_TrackedTimeOnlyWithoutATicket(t *testing.T) {
 	times := &toggl.Digest{
-		Total:     105 * time.Minute,
 		Unflagged: 15 * time.Minute,
 		Entries: []toggl.Entry{
 			{
@@ -234,49 +236,44 @@ func TestDigest_TrackedTime(t *testing.T) {
 	}
 	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, times, t1)
 
-	// A flagged entry renders plainly...
-	wantLine := "[" + fmtTime(t1) + "]\t1h 30m\tApp\t#412 Fix login bug\tdev, urgent\n"
+	wantLine := "[" + fmtTime(t2) + "]\t15m\tInternal\tRelease planning\t\n"
 	if !strings.Contains(got, wantLine) {
-		t.Errorf("missing time entry line %q in:\n%s", wantLine, got)
+		t.Errorf("missing untracked-work line %q in:\n%s", wantLine, got)
 	}
-	// ...an unflagged one carries the marker.
-	wantUnflagged := "[" + fmtTime(t2) + "]\t15m\tInternal\tRelease planning\t\tNO TICKET\n"
-	if !strings.Contains(got, wantUnflagged) {
-		t.Errorf("missing unflagged entry line %q in:\n%s", wantUnflagged, got)
-	}
-	if n := strings.Count(got, "NO TICKET"); n != 1 {
-		t.Errorf("NO TICKET appears %d times, want 1, in:\n%s", n, got)
+	// The ticketed entry is absent — its description, and above all its hours.
+	for _, unwanted := range []string{"#412", "Fix login bug", "1h 30m"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("digest leaked ticketed work (%q) in:\n%s", unwanted, got)
+		}
 	}
 
-	wantFooter := "2 time entries totalling 1h 45m tracked since " + fmtTime(t1)
+	wantFooter := "1 time entry totalling 15m since " + fmtTime(t1) +
+		", none tied to a ticket: work with no commit or pull request behind it"
 	if !strings.Contains(got, wantFooter) {
 		t.Errorf("missing tracked-time footer %q in:\n%s", wantFooter, got)
 	}
-	wantSplit := "1 of them (15m) name no ticket"
-	if !strings.Contains(got, wantSplit) {
-		t.Errorf("missing unflagged split %q in:\n%s", wantSplit, got)
-	}
 	// Tracked time closes the digest, after the commit section.
-	if strings.Index(got, "commit(s) by") > strings.Index(got, "Fix login bug") {
+	if strings.Index(got, "commit(s) by") > strings.Index(got, "Release planning") {
 		t.Error("expected the tracked-time section to render after commits")
 	}
 }
 
-// The footer's unflagged figures are derived from the rendered entries, so a
-// caller-supplied total can never make the summary contradict the lines.
-func TestDigest_UnflaggedFooterFollowsTheEntries(t *testing.T) {
+// Every entry naming a ticket means there is no untracked work to report; the
+// section must then total nothing rather than falling back to the full figure.
+func TestDigest_TrackedTimeAllTicketed(t *testing.T) {
 	times := &toggl.Digest{
-		Total:     time.Hour,
-		Unflagged: 99 * time.Hour, // wrong on purpose
 		Entries: []toggl.Entry{
-			{Description: "#1 tracked", Start: t1, Duration: 30 * time.Minute, Tickets: []string{"#1"}},
-			{Description: "research", Start: t2, Duration: 30 * time.Minute},
+			{Description: "#1 a", Start: t1, Duration: time.Hour, Tickets: []string{"#1"}},
+			{Description: "#2 b", Start: t2, Duration: time.Hour, Tickets: []string{"#2"}},
 		},
 	}
 	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, times, t1)
 
-	if !strings.Contains(got, "1 of them (30m) name no ticket") {
-		t.Errorf("footer did not follow the rendered entries in:\n%s", got)
+	if !strings.Contains(got, "0 time entries totalling 0m since") {
+		t.Errorf("want an empty untracked-work footer in:\n%s", got)
+	}
+	if strings.Contains(got, "1h") || strings.Contains(got, "2h") {
+		t.Errorf("digest leaked hours for ticketed work in:\n%s", got)
 	}
 }
 
@@ -284,19 +281,18 @@ func TestDigest_TrackedTimePlaceholdersAndRunning(t *testing.T) {
 	// An entry needs neither a description nor a project, and a timer may still
 	// be running when the digest is built — none of which may render blank.
 	times := &toggl.Digest{
-		Total: 30 * time.Minute,
 		Entries: []toggl.Entry{
 			{Start: t1, Duration: 30 * time.Minute, Running: true},
 		},
 	}
 	got := Digest(&gh.PullRequestDigest{}, &gh.CommitDigest{}, nil, times, t1)
 
-	wantLine := "[" + fmtTime(t1) + "]\t30m\t(no project)\t(no description)\t\tNO TICKET\t(still running)\n"
+	wantLine := "[" + fmtTime(t1) + "]\t30m\t(no project)\t(no description)\t\t(still running)\n"
 	if !strings.Contains(got, wantLine) {
 		t.Errorf("missing running entry line %q in:\n%s", wantLine, got)
 	}
 	// The footer's singular form.
-	if !strings.Contains(got, "1 time entry totalling 30m tracked since") {
+	if !strings.Contains(got, "1 time entry totalling 30m since") {
 		t.Errorf("singular footer missing in:\n%s", got)
 	}
 }

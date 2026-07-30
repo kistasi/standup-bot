@@ -20,7 +20,7 @@ func StandupSystem(period string) string {
 		"lines \"Hi Team,\" and \"My " + period + " was about:\" separated by a blank " +
 		"line (two newlines after \"Hi Team,\") and nothing before it. Group " +
 		"related work, lead with what shipped, and keep it to a few short bullet " +
-		"points. " + deliveredRule + timeRule + ticketRule +
+		"points. " + deliveredRule + timeRule +
 		"Cite the pull requests behind each bullet as markdown links on their " +
 		"titles, e.g. \"[Fix login bug](url)\"; link pull requests only, not " +
 		"commits. Report only work that was actually done: omit items that were " +
@@ -48,13 +48,13 @@ func MonthlySystem(period string) string {
 		", write a first-person monthly report in GitHub-flavored markdown. " +
 		"Each pull request line carries its repository, state, head branch, " +
 		"title, and URL; the commit section that follows records the code " +
-		"behind them. " + deliveredRule + timeRule + ticketRule +
+		"behind them. " + deliveredRule + timeRule +
 		"Begin with exactly the heading \"# " + period + "\" and nothing before " +
 		"it. Organize the work into a handful of themed sections (\"## \" " +
 		"headings) covering what shipped, what progressed, and anything left " +
-		"open, each with short bullet points; give the NO TICKET work a section " +
-		"of its own headed \"## Work without a paper trail\", placed last, and omit " +
-		"that section entirely when there is no such work; add a brief summary paragraph " +
+		"open, each with short bullet points; give the tracked-time work a " +
+		"section of its own headed \"## Work without a paper trail\", placed last, " +
+		"and omit that section entirely when there is none; add a brief summary paragraph " +
 		"under the top heading. Group related commits and pull requests into one " +
 		"entry rather than listing them mechanically, and describe outcomes " +
 		"rather than restating commit messages. Every bullet must cite the " +
@@ -66,24 +66,23 @@ func MonthlySystem(period string) string {
 }
 
 // timeRule explains the tracked-time section, which is present only when Toggl
-// is configured. It has to be worded for its absence too: the prompt is a
-// constant, while the section is not.
+// is configured. It has to be worded for the section's absence too: the prompt
+// is a constant while the section is not.
+//
+// The section holds only time that named no ticket — planning, research, review,
+// support. That is deliberate: work with a ticket already appears in the pull
+// request and commit sections, and how long it took is not reported at all. So
+// every line here is work nothing else in the digest records, and the hours are
+// only ever those of work with no code behind it.
 const timeRule = "The digest may end with a tracked-time section — one line per " +
 	"time entry with its duration, project, description and tags, then a total. " +
-	"When it is there, use it to weight what mattered and mention the total " +
-	"where it is worth saying; a line marked \"(still running)\" is a timer that " +
-	"had not been stopped, so treat its duration as approximate. Never invent " +
-	"hours when the section is absent. "
-
-// ticketRule explains render's NO TICKET marker, the whole point of the
-// tracked-time section: an entry naming no ticket is planning, research, review
-// or support — real work that produced no commit and no pull request, so it
-// appears nowhere else in the digest and would otherwise go unreported.
-const ticketRule = "A tracked-time line ending in \"NO TICKET\" names no ticket, " +
-	"so nothing in the pull request or commit sections covers it: it is planning, " +
-	"research, review, support or similar. Report that work too, describing it " +
-	"from the entry's own description and saying roughly how long it took — this " +
-	"section is its only record. Do not describe it as a commit or link it. "
+	"Every entry there is work that produced no commit and no pull request: " +
+	"planning, research, review, support or similar. Nothing else in the digest " +
+	"records it, so report it too, describing it from the entry's own " +
+	"description and saying roughly how long it took; never link it or call it a " +
+	"commit. A line marked \"(still running)\" is a timer that had not been " +
+	"stopped, so treat its duration as approximate. Never mention hours for any " +
+	"other work, and never invent hours when the section is absent. "
 
 // Client wraps the Anthropic SDK client.
 type Client struct {

@@ -73,8 +73,8 @@ func TestEntries_DecodesAndTotals(t *testing.T) {
 		e.Running || len(e.Tags) != 1 || e.Tags[0] != "dev" {
 		t.Errorf("entry = %+v, unexpected fields", e)
 	}
-	if want := 105 * time.Minute; digest.Total != want {
-		t.Errorf("Total = %v, want %v", digest.Total, want)
+	if want := 105 * time.Minute; digest.Unflagged != want {
+		t.Errorf("Unflagged = %v, want %v (nothing here names a ticket)", digest.Unflagged, want)
 	}
 }
 
@@ -359,10 +359,8 @@ func TestEntries_FlagsAndUnflaggedTotal(t *testing.T) {
 	if flagged != 1 {
 		t.Errorf("got %d flagged entries, want 1: %+v", flagged, digest.Entries)
 	}
-	if want := 105 * time.Minute; digest.Total != want {
-		t.Errorf("Total = %v, want %v", digest.Total, want)
-	}
-	// Only the two entries naming no ticket count towards Unflagged.
+	// Only the two entries naming no ticket count towards Unflagged; there is no
+	// total across every entry, by design.
 	if want := 45 * time.Minute; digest.Unflagged != want {
 		t.Errorf("Unflagged = %v, want %v", digest.Unflagged, want)
 	}

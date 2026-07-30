@@ -18,11 +18,6 @@ const timeLayout = "2006-01-02 15:04"
 // The summarizer is told to read it as "this shipped".
 const delivered = "\tDELIVERED"
 
-// noTicket is the marker appended to a time entry naming no ticket. That work
-// has no commit or pull request behind it — planning, research, review — so the
-// tracked-time section is the only place it appears at all.
-const noTicket = "\tNO TICKET"
-
 // Digest renders the pull requests, commits, calendar events, then tracked time
 // as one report. events and times may each be nil — they are when Google
 // Calendar or Toggl is not configured, and times is also nil when the window
@@ -85,16 +80,24 @@ func writeEvents(b *strings.Builder, d *gcal.Digest, since time.Time) {
 		len(d.Events), d.CalendarID, since.Local().Format(timeLayout))
 }
 
-// writeTimes renders tracked time: one line per entry with its span, duration,
-// project, description and tags, then a total. An entry naming no ticket carries
-// the NO TICKET marker, and the footer totals that share separately — it is the
-// work no commit records. A still-running timer is flagged too, since its
-// duration is only as of the moment the digest was built.
+// writeTimes renders the tracked time that names no ticket, and only that: one
+// line per entry with its start, duration, project, description and tags. Time
+// logged against a ticket is deliberately left out — the pull request and commit
+// sections already account for that work, and the digest carries no figure for
+// how long it took. What remains is the work with no code behind it, which
+// nothing else in the digest records. A still-running timer is flagged, since
+// its duration is only as of the moment the digest was built.
 func writeTimes(b *strings.Builder, d *toggl.Digest, since time.Time) {
-	// Both halves of the footer's unflagged figure are derived from the entries
-	// rendered above, so the summary can never disagree with the lines.
-	unflagged, unflaggedTime := 0, time.Duration(0)
+	// Counted from the entries actually written, so the footer can never
+	// disagree with the lines above it.
+	n, total := 0, time.Duration(0)
 	for _, e := range d.Entries {
+		if e.Flagged() {
+			continue
+		}
+		n++
+		total += e.Duration
+
 		description := e.Description
 		if description == "" {
 			description = "(no description)"
@@ -106,21 +109,14 @@ func writeTimes(b *strings.Builder, d *toggl.Digest, since time.Time) {
 		fmt.Fprintf(b, "[%s]\t%s\t%s\t%s\t%s",
 			e.Start.Local().Format(timeLayout), toggl.Label(e.Duration), project, description,
 			strings.Join(e.Tags, ", "))
-		if !e.Flagged() {
-			unflagged++
-			unflaggedTime += e.Duration
-			fmt.Fprint(b, noTicket)
-		}
 		if e.Running {
 			fmt.Fprint(b, "\t(still running)")
 		}
 		fmt.Fprintln(b)
 	}
 
-	fmt.Fprintf(b, "\n%d time entr%s totalling %s tracked since %s\n",
-		len(d.Entries), plural(len(d.Entries)), toggl.Label(d.Total), since.Local().Format(timeLayout))
-	fmt.Fprintf(b, "%d of them (%s) name no ticket: work with no commit or pull request behind it\n",
-		unflagged, toggl.Label(unflaggedTime))
+	fmt.Fprintf(b, "\n%d time entr%s totalling %s since %s, none tied to a ticket: work with no commit or pull request behind it\n",
+		n, plural(n), toggl.Label(total), since.Local().Format(timeLayout))
 }
 
 // plural is the "entry"/"entries" suffix for the tracked-time footer.

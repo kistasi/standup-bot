@@ -56,9 +56,11 @@ func (e Entry) Flagged() bool {
 // Digest is the result of reading a window of time entries.
 type Digest struct {
 	Entries []Entry
-	Total   time.Duration // the summed duration of every entry, running included
 
-	// Unflagged is the part of Total spent on entries naming no ticket.
+	// Unflagged is the time spent on entries naming no ticket — the only figure
+	// the reports may quote. There is deliberately no total across every entry:
+	// time logged against a ticket is never reported, since the pull request and
+	// commit sections already account for that work.
 	Unflagged time.Duration
 }
 
@@ -152,7 +154,6 @@ func (c *Client) Entries(ctx context.Context, since, until time.Time) (*Digest, 
 			continue
 		}
 		digest.Entries = append(digest.Entries, entry)
-		digest.Total += entry.Duration
 		if !entry.Flagged() {
 			digest.Unflagged += entry.Duration
 		}
