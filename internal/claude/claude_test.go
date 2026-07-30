@@ -119,6 +119,7 @@ func TestMonthlySystem_Anchors(t *testing.T) {
 		"tracked-time", "still running", "Never invent",
 		"no commit and no pull request", "Nothing else in the digest",
 		"never mention hours for any other work", "## Work without a paper trail",
+		"past tense", "no follow-ups", "will need",
 	} {
 		if !strings.Contains(strings.ToLower(sys), strings.ToLower(anchor)) {
 			t.Errorf("MonthlySystem missing required anchor %q", anchor)
@@ -155,11 +156,56 @@ func TestStandupSystem_Anchors(t *testing.T) {
 				"tracked-time", "still running", "Never invent",
 				"no commit and no pull request", "Nothing else in the digest",
 				"never mention hours for any other work",
+				"past tense", "no follow-ups", "will need",
 			} {
 				if !strings.Contains(strings.ToLower(sys), strings.ToLower(anchor)) {
 					t.Errorf("StandupSystem(%q) missing required anchor %q", tt.period, anchor)
 				}
 			}
 		})
+	}
+}
+
+// Both prompts must refuse forward-looking notes. The digest's own prose is full
+// of them — a commit body saying an index "will need a redeploy", a description
+// flagging a cron to watch — and repeating one as though it were a result is the
+// failure this rule exists to prevent.
+func TestPromptsRefuseForwardLookingNotes(t *testing.T) {
+	prompts := map[string]string{
+		"StandupSystem": StandupSystem("yesterday"),
+		"MonthlySystem": MonthlySystem("June 2026"),
+	}
+	// Each of these has to be named explicitly: a rule that only said "past
+	// tense" would leave the model to decide what counts.
+	forbidden := []string{
+		"follow-ups", "next steps", "TODOs", "reminders",
+		"pending deployments", "redeploys", "caveats", "known issues left to fix",
+	}
+	for name, sys := range prompts {
+		t.Run(name, func(t *testing.T) {
+			lower := strings.ToLower(sys)
+			for _, want := range forbidden {
+				if !strings.Contains(lower, strings.ToLower(want)) {
+					t.Errorf("%s does not name %q as something to omit", name, want)
+				}
+			}
+			// Unfinished work is still reportable — by its progress, not by what
+			// is left — so the rule must not read as "drop anything unfinished".
+			if !strings.Contains(sys, "Describe unfinished work by the progress") {
+				t.Errorf("%s drops unfinished work instead of describing its progress", name)
+			}
+		})
+	}
+}
+
+// The monthly report used to ask for a section on "anything left open", which
+// invited exactly the forward-looking notes the rule forbids.
+func TestMonthlySystem_NoLeftOpenSection(t *testing.T) {
+	sys := MonthlySystem("June 2026")
+	if strings.Contains(sys, "left open") {
+		t.Errorf("MonthlySystem still asks for work \"left open\":\n%s", sys)
+	}
+	if !strings.Contains(sys, "still in flight") {
+		t.Errorf("MonthlySystem should cover in-flight work by its progress:\n%s", sys)
 	}
 }

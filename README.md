@@ -25,7 +25,9 @@ It also writes a **monthly report** on demand — see [Monthly report](#monthly-
    and keep only those that name no ticket.
 5. Render them into a plain-text digest.
 6. Feed the digest to Claude for a standup-style summary, which links the pull
-   requests behind each bullet and calls out what was delivered.
+   requests behind each bullet, calls out what was delivered, and reports only
+   what was actually done — no follow-ups, TODOs or "will need a redeploy"
+   notes picked up out of commit bodies and descriptions.
 7. Print the summary, and post it to Slack when `SLACK_WEBHOOK_URL` is set.
 
 ## Setup

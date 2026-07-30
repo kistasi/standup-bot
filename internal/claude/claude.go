@@ -23,9 +23,7 @@ func StandupSystem(period string) string {
 		"points. " + deliveredRule + timeRule +
 		"Cite the pull requests behind each bullet as markdown links on their " +
 		"titles, e.g. \"[Fix login bug](url)\"; link pull requests only, not " +
-		"commits. Report only work that was actually done: omit items that were " +
-		"merely created or opened for future work (pull requests with no " +
-		"substantive progress). Omit noise. End the " +
+		"commits. " + pastTenseRule + "Omit noise. End the " +
 		"message with exactly the line \"Have a nice day!\" and nothing after it."
 }
 
@@ -51,8 +49,9 @@ func MonthlySystem(period string) string {
 		"behind them. " + deliveredRule + timeRule +
 		"Begin with exactly the heading \"# " + period + "\" and nothing before " +
 		"it. Organize the work into a handful of themed sections (\"## \" " +
-		"headings) covering what shipped, what progressed, and anything left " +
-		"open, each with short bullet points; give the tracked-time work a " +
+		"headings) covering what shipped and what progressed — work still in " +
+		"flight belongs there too, described by the progress made on it rather " +
+		"than by what is left to do — each with short bullet points; give the tracked-time work a " +
 		"section of its own headed \"## Work without a paper trail\", placed last, " +
 		"and omit that section entirely when there is none; add a brief summary paragraph " +
 		"under the top heading. Group related commits and pull requests into one " +
@@ -60,10 +59,24 @@ func MonthlySystem(period string) string {
 		"rather than restating commit messages. Every bullet must cite the " +
 		"pull requests behind it as markdown links on their titles, " +
 		"e.g. \"[Fix login bug](url)\"; link pull requests only, not commits. " +
-		"Report only work that was " +
-		"actually done: omit items that were merely created or opened for " +
-		"future work. Omit noise. Write nothing after the final section."
+		pastTenseRule + "Omit noise. Write nothing after the final section."
 }
+
+// pastTenseRule keeps both reports in the past tense. Commit bodies, pull
+// request descriptions and time entries are full of notes about what still has
+// to happen — "the Algolia index will need a redeploy", "watch the cron after
+// this" — and a summarizer repeats them happily, as though a reminder were a
+// result. It is not: these reports say what was done. Whoever wants the
+// outstanding work has the tickets for it.
+const pastTenseRule = "Report only what was actually done, in the past tense. " +
+	"Say nothing about what still has to happen: no follow-ups, next steps, " +
+	"TODOs, reminders, pending deployments, migrations or redeploys, caveats, " +
+	"warnings, or known issues left to fix. The source material is full of such " +
+	"notes — a commit body, a pull request description or a time entry may say " +
+	"something \"will need\" doing, or flag something to watch afterwards — and " +
+	"none of it belongs in the report. Describe unfinished work by the progress " +
+	"made on it, never by what remains. Omit anything merely created or opened " +
+	"for future work, such as a pull request with no substantive progress. "
 
 // timeRule explains the tracked-time section, which is present only when Toggl
 // is configured. It has to be worded for the section's absence too: the prompt
