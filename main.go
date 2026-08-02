@@ -88,6 +88,16 @@ func run() error {
 		return err
 	}
 
+	// A window with no activity in it has nothing to say. Stopping here keeps
+	// the channel free of "nothing to report" messages — and there is no digest
+	// worth summarizing or backing up either, so the run ends before the Claude
+	// call rather than after it.
+	if !hasActivity(pulls, commits, events, times) {
+		fmt.Fprintf(os.Stderr, "Nothing logged since %s: no standup posted.\n",
+			since.Local().Format("2006-01-02 15:04"))
+		return nil
+	}
+
 	digest := render.Digest(pulls, commits, events, times, since)
 
 	summary, err := claude.New().Ask(ctx, claude.StandupSystem(cfg.PeriodLabel()), digest)
@@ -108,6 +118,30 @@ func run() error {
 	// the standup writes no local file — this run happens on a scheduler with an
 	// ephemeral disk — so the text is uploaded straight from memory.
 	return backup(ctx, cfg, standupName(now), []byte(summary))
+}
+
+// hasActivity reports whether the window holds anything worth a standup. It
+// mirrors what render.Digest actually prints: the optional sections count only
+// when they are configured (a nil digest is an absent section, not an empty
+// one), and tracked time counts only for the entries naming no ticket, since
+// those are the only ones the report shows. Meetings count too — a day spent in
+// them is still a day to report on.
+func hasActivity(pulls *gh.PullRequestDigest, commits *gh.CommitDigest, events *gcal.Digest, times *toggl.Digest) bool {
+	switch {
+	case len(pulls.PullRequests) > 0, len(commits.Commits) > 0:
+		return true
+	case events != nil && len(events.Events) > 0:
+		return true
+	}
+	if times == nil {
+		return false
+	}
+	for _, e := range times.Entries {
+		if !e.Flagged() {
+			return true
+		}
+	}
+	return false
 }
 
 // standupName is the Drive filename for a day's standup summary, e.g.

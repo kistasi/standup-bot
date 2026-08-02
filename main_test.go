@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/kistasi/standup-bot/internal/config"
+	"github.com/kistasi/standup-bot/internal/gcal"
+	"github.com/kistasi/standup-bot/internal/gh"
+	"github.com/kistasi/standup-bot/internal/toggl"
 )
 
 // Only the rejection branch is exercised here: the other two reach out to
@@ -32,6 +35,54 @@ func TestStandupName(t *testing.T) {
 	if standupName(later) != standupName(now) {
 		t.Error("standupName() changed within the same day, want one file per day")
 	}
+}
+
+// An empty window must not reach Slack, so hasActivity has to be false for
+// exactly the digest render would print nothing from: no pull requests, no
+// commits, no meetings, and no ticket-less time entries.
+func TestHasActivity(t *testing.T) {
+	empty := func() (*gh.PullRequestDigest, *gh.CommitDigest) {
+		return &gh.PullRequestDigest{}, &gh.CommitDigest{}
+	}
+
+	t.Run("nothing at all", func(t *testing.T) {
+		pulls, commits := empty()
+		if hasActivity(pulls, commits, nil, nil) {
+			t.Error("hasActivity() = true, want false for an empty window")
+		}
+	})
+
+	t.Run("empty optional sections", func(t *testing.T) {
+		pulls, commits := empty()
+		if hasActivity(pulls, commits, &gcal.Digest{}, &toggl.Digest{}) {
+			t.Error("hasActivity() = true, want false when the calendar and Toggl are on but empty")
+		}
+	})
+
+	t.Run("only ticketed time", func(t *testing.T) {
+		pulls, commits := empty()
+		// Entries naming a ticket are dropped by render, so they are not
+		// activity as far as the standup is concerned.
+		times := &toggl.Digest{Entries: []toggl.Entry{{Description: "fix #12", Tickets: []string{"#12"}}}}
+		if hasActivity(pulls, commits, nil, times) {
+			t.Error("hasActivity() = true, want false when every time entry names a ticket")
+		}
+	})
+
+	t.Run("each section alone is enough", func(t *testing.T) {
+		pulls, commits := empty()
+		cases := map[string]bool{
+			"pull request": hasActivity(&gh.PullRequestDigest{PullRequests: []gh.PullRequest{{Title: "Add a thing"}}}, commits, nil, nil),
+			"commit":       hasActivity(pulls, &gh.CommitDigest{Commits: []gh.Commit{{Message: "Add a thing"}}}, nil, nil),
+			"meeting":      hasActivity(pulls, commits, &gcal.Digest{Events: []gcal.Event{{Summary: "Planning"}}}, nil),
+			"time entry":   hasActivity(pulls, commits, nil, &toggl.Digest{Entries: []toggl.Entry{{Description: "pairing"}}}),
+		}
+		for name, got := range cases {
+			if !got {
+				t.Errorf("hasActivity() = false with only a %s, want true", name)
+			}
+		}
+	})
 }
 
 // Both commands call backup unconditionally, so the "Drive not configured"
