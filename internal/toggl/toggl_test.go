@@ -50,8 +50,8 @@ func TestEntries_DecodesAndTotals(t *testing.T) {
 	start2 := since.Add(3 * time.Hour)
 
 	body := `[
-		{"description":"Fix login bug","project_name":"App","start":"` + start2.Format(time.RFC3339) + `","stop":"` + start2.Add(90*time.Minute).Format(time.RFC3339) + `","duration":5400,"tags":["dev"]},
-		{"description":"Standup","project_name":"App","start":"` + start1.Format(time.RFC3339) + `","stop":"` + start1.Add(15*time.Minute).Format(time.RFC3339) + `","duration":900,"tags":null}
+		{"client_name":"DPGA","description":"Fix login bug","project_name":"App","start":"` + start2.Format(time.RFC3339) + `","stop":"` + start2.Add(90*time.Minute).Format(time.RFC3339) + `","duration":5400,"tags":["dev"]},
+		{"client_name":"DPGA","description":"Standup","project_name":"App","start":"` + start1.Format(time.RFC3339) + `","stop":"` + start1.Add(15*time.Minute).Format(time.RFC3339) + `","duration":900,"tags":null}
 	]`
 
 	client, _ := captureServer(t, http.StatusOK, body, nil)
@@ -142,7 +142,7 @@ func TestEntries_RunningTimer(t *testing.T) {
 
 	// A running entry has stop:null and a negative duration (the "-1
 	// convention"), so the duration field must be ignored.
-	body := `[{"description":"In progress","project_name":null,"start":"` +
+	body := `[{"client_name":"DPGA","description":"In progress","project_name":null,"start":"` +
 		start.Format(time.RFC3339) + `","stop":null,"duration":-1750000000,"tags":null}]`
 
 	client, _ := captureServer(t, http.StatusOK, body, nil)
@@ -173,7 +173,7 @@ func TestEntries_RunningTimer(t *testing.T) {
 func TestEntries_NullDescriptionAndTags(t *testing.T) {
 	since, until := window()
 	start := since.Add(time.Hour)
-	body := `[{"description":null,"project_name":null,"start":"` + start.Format(time.RFC3339) +
+	body := `[{"client_name":"DPGA","description":null,"project_name":null,"start":"` + start.Format(time.RFC3339) +
 		`","stop":"` + start.Add(time.Hour).Format(time.RFC3339) + `","duration":3600,"tags":null}]`
 
 	client, _ := captureServer(t, http.StatusOK, body, nil)
@@ -195,9 +195,9 @@ func TestEntries_NullDescriptionAndTags(t *testing.T) {
 func TestEntries_FiltersWindowClientSide(t *testing.T) {
 	since, until := window()
 	body := `[
-		{"description":"before","start":"` + since.Add(-time.Hour).Format(time.RFC3339) + `","stop":"` + since.Format(time.RFC3339) + `","duration":3600},
-		{"description":"at until","start":"` + until.Format(time.RFC3339) + `","stop":"` + until.Add(time.Hour).Format(time.RFC3339) + `","duration":3600},
-		{"description":"inside","start":"` + since.Add(time.Hour).Format(time.RFC3339) + `","stop":"` + since.Add(2*time.Hour).Format(time.RFC3339) + `","duration":3600}
+		{"client_name":"DPGA","description":"before","start":"` + since.Add(-time.Hour).Format(time.RFC3339) + `","stop":"` + since.Format(time.RFC3339) + `","duration":3600},
+		{"client_name":"DPGA","description":"at until","start":"` + until.Format(time.RFC3339) + `","stop":"` + until.Add(time.Hour).Format(time.RFC3339) + `","duration":3600},
+		{"client_name":"DPGA","description":"inside","start":"` + since.Add(time.Hour).Format(time.RFC3339) + `","stop":"` + since.Add(2*time.Hour).Format(time.RFC3339) + `","duration":3600}
 	]`
 
 	client, _ := captureServer(t, http.StatusOK, body, nil)
@@ -208,6 +208,40 @@ func TestEntries_FiltersWindowClientSide(t *testing.T) {
 	}
 	if len(digest.Entries) != 1 || digest.Entries[0].Description != "inside" {
 		t.Errorf("entries = %+v, want only the in-window one", digest.Entries)
+	}
+}
+
+// Only the configured client's work is reported: the account also tracks time
+// for other clients (and entries with no client at all), which is none of the
+// bot's business.
+func TestEntries_FiltersOtherClients(t *testing.T) {
+	since, until := window()
+	start := since.Add(time.Hour)
+	stop := start.Add(time.Hour).Format(time.RFC3339)
+	entry := func(client string) string {
+		return `{` + client + `"description":"work","start":"` + start.Format(time.RFC3339) +
+			`","stop":"` + stop + `","duration":3600}`
+	}
+
+	body := `[` + entry(`"client_name":"Other Ltd",`) + `,` +
+		entry(`"client_name":null,`) + `,` +
+		entry(``) + `,` +
+		entry(`"client_name":"dpga",`) + `]`
+
+	client, _ := captureServer(t, http.StatusOK, body, nil)
+
+	digest, err := client.Entries(context.Background(), since, until)
+	if err != nil {
+		t.Fatalf("Entries error = %v", err)
+	}
+	if len(digest.Entries) != 1 {
+		t.Fatalf("got %d entries, want only the DPGA one: %+v", len(digest.Entries), digest.Entries)
+	}
+	if got := digest.Entries[0].Client; got != "dpga" {
+		t.Errorf("Client = %q, want the value the API sent", got)
+	}
+	if want := time.Hour; digest.Unflagged != want {
+		t.Errorf("Unflagged = %v, want %v (only the kept entry counts)", digest.Unflagged, want)
 	}
 }
 
@@ -268,8 +302,8 @@ func TestEntries_UnparsableTimesDropped(t *testing.T) {
 	since, until := window()
 	start := since.Add(time.Hour)
 	body := `[
-		{"description":"bad start","start":"whenever","stop":null,"duration":1},
-		{"description":"bad stop","start":"` + start.Format(time.RFC3339) + `","stop":"whenever","duration":1}
+		{"client_name":"DPGA","description":"bad start","start":"whenever","stop":null,"duration":1},
+		{"client_name":"DPGA","description":"bad stop","start":"` + start.Format(time.RFC3339) + `","stop":"whenever","duration":1}
 	]`
 	client, _ := captureServer(t, http.StatusOK, body, nil)
 
@@ -335,9 +369,9 @@ func TestEntries_FlagsAndUnflaggedTotal(t *testing.T) {
 	stop := func(d time.Duration) string { return start.Add(d).Format(time.RFC3339) }
 
 	body := `[
-		{"description":"#412 fix login","start":"` + start.Format(time.RFC3339) + `","stop":"` + stop(time.Hour) + `","duration":3600,"tags":null},
-		{"description":"release planning","start":"` + start.Format(time.RFC3339) + `","stop":"` + stop(30*time.Minute) + `","duration":1800,"tags":null},
-		{"description":"API research","start":"` + start.Format(time.RFC3339) + `","stop":"` + stop(15*time.Minute) + `","duration":900,"tags":null}
+		{"client_name":"DPGA","description":"#412 fix login","start":"` + start.Format(time.RFC3339) + `","stop":"` + stop(time.Hour) + `","duration":3600,"tags":null},
+		{"client_name":"DPGA","description":"release planning","start":"` + start.Format(time.RFC3339) + `","stop":"` + stop(30*time.Minute) + `","duration":1800,"tags":null},
+		{"client_name":"DPGA","description":"API research","start":"` + start.Format(time.RFC3339) + `","stop":"` + stop(15*time.Minute) + `","duration":900,"tags":null}
 	]`
 
 	client, _ := captureServer(t, http.StatusOK, body, nil)

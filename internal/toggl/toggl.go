@@ -29,6 +29,12 @@ const Lookback = 3 * 30 * 24 * time.Hour
 // report for an old month is still worth writing without its hours.
 var ErrBeyondLookback = errors.New("start of window is beyond Toggl's ~3-month lookback limit")
 
+// clientName is the Toggl client whose work belongs in the reports. Time is
+// tracked for several clients under one account, but only this one's work is
+// the bot's business, so an entry booked to any other client — or to none at
+// all — is dropped before it can reach a digest.
+const clientName = "DPGA"
+
 // ticketRe matches a GitHub-style ticket reference — "#412" — which is how the
 // owner flags an entry as belonging to a ticket. A reference anywhere in the
 // description or tags counts, since it is often written mid-sentence.
@@ -38,6 +44,7 @@ var ticketRe = regexp.MustCompile(`#\d+\b`)
 type Entry struct {
 	Description string // may be empty: an entry needs no description
 	Project     string // resolved by the API via meta=true; empty when unset
+	Client      string // resolved by the API via meta=true; always clientName
 	Start       time.Time
 	Stop        time.Time // zero while the timer is still running
 	Duration    time.Duration
@@ -99,6 +106,7 @@ func (a basicAuth) RoundTrip(r *http.Request) (*http.Response, error) {
 type entryJSON struct {
 	Description *string  `json:"description"`
 	ProjectName *string  `json:"project_name"` // only present with meta=true
+	ClientName  *string  `json:"client_name"`  // only present with meta=true
 	Start       string   `json:"start"`
 	Stop        *string  `json:"stop"` // null while the timer runs
 	Duration    int64    `json:"duration"`
@@ -122,8 +130,9 @@ func (c *Client) Entries(ctx context.Context, since, until time.Time) (*Digest, 
 	q := url.Values{
 		"start_date": {since.Format(time.RFC3339)},
 		"end_date":   {until.Format(time.RFC3339)},
-		// meta=true resolves project_name inline. Without it the project would
-		// need a lookup per entry, which the hourly quota cannot afford.
+		// meta=true resolves project_name and client_name inline. Without it both
+		// would need a lookup per entry, which the hourly quota cannot afford —
+		// and the client is what decides whether an entry is reported at all.
 		"meta": {"true"},
 	}
 
@@ -186,9 +195,10 @@ func checkStatus(resp *http.Response) error {
 	}
 }
 
-// toEntry flattens one decoded entry, returning ok=false when it is unusable or
-// starts outside [since, until). The window is re-checked here because the API
-// filters on its own timezone rendering of start_date/end_date.
+// toEntry flattens one decoded entry, returning ok=false when it is unusable,
+// starts outside [since, until), or is booked to a client other than
+// clientName. The window is re-checked here because the API filters on its own
+// timezone rendering of start_date/end_date.
 func (r entryJSON) toEntry(since, until time.Time) (Entry, bool) {
 	start, err := time.Parse(time.RFC3339, r.Start)
 	if err != nil {
@@ -198,8 +208,14 @@ func (r entryJSON) toEntry(since, until time.Time) (Entry, bool) {
 		return Entry{}, false
 	}
 
+	client := deref(r.ClientName)
+	if !strings.EqualFold(client, clientName) {
+		return Entry{}, false
+	}
+
 	entry := Entry{
 		Description: deref(r.Description),
+		Client:      client,
 		Project:     deref(r.ProjectName),
 		Start:       start,
 		Tags:        r.Tags,
