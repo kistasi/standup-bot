@@ -1,8 +1,10 @@
 package gh
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -171,5 +173,89 @@ func TestAppendCommits_KeepsReleasesDropsMerges(t *testing.T) {
 	}
 	if !got[1].Delivered {
 		t.Error("commit[1].Delivered = false, want true for a release commit")
+	}
+}
+
+func TestRetryTransport_RetriesGatewayErrorsWithBody(t *testing.T) {
+	var calls int
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(b))
+		if calls < 3 {
+			w.WriteHeader(http.StatusGatewayTimeout)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tr := retryTransport{base: http.DefaultTransport, waits: []time.Duration{0, 0, 0}}
+	req, err := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(`{"query":"q"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip error = %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	if calls != 3 {
+		t.Errorf("calls = %d, want 3", calls)
+	}
+	for i, b := range bodies {
+		if b != `{"query":"q"}` {
+			t.Errorf("attempt %d body = %q, want the original body", i+1, b)
+		}
+	}
+}
+
+func TestRetryTransport_GivesUpAfterWaits(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	tr := retryTransport{base: http.DefaultTransport, waits: []time.Duration{0, 0}}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip error = %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("status = %d, want 502", resp.StatusCode)
+	}
+	if calls != 3 {
+		t.Errorf("calls = %d, want 3 (one try plus two retries)", calls)
+	}
+}
+
+func TestRetryTransport_DoesNotRetryOtherErrors(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	tr := retryTransport{base: http.DefaultTransport, waits: []time.Duration{0, 0}}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip error = %v", err)
+	}
+	resp.Body.Close()
+
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1", calls)
 	}
 }
