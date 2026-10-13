@@ -19,6 +19,14 @@ import (
 	"github.com/kistasi/standup-bot/internal/toggl"
 )
 
+// The calendar and Toggl integrations are switched off: the reports cover GitHub
+// contributions only. Both are kept intact rather than deleted — flip a switch
+// back to true (with its env vars still set) to bring that section back.
+const (
+	calendarOn = false
+	togglOn    = false
+)
+
 func main() {
 	if err := dispatch(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -41,9 +49,9 @@ func dispatch(args []string) error {
 }
 
 // run assembles the digest — pull requests and commits, plus meetings when the
-// calendar is on and tracked time when Toggl is — and feeds it to Claude for a
-// standup summary. Project tickets are deliberately not part of it: the report
-// follows the code.
+// calendar is on and tracked time when Toggl is (both currently switched off,
+// see calendarOn and togglOn) — and feeds it to Claude for a standup summary.
+// Project tickets are deliberately not part of it: the report follows the code.
 func run() error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -72,7 +80,7 @@ func run() error {
 	// calendar are configured; otherwise events stays nil and the digest omits
 	// the section.
 	var events *gcal.Digest
-	if cfg.CalendarEnabled() {
+	if calendarOn && cfg.CalendarEnabled() {
 		cal, err := gcal.New(ctx, []byte(cfg.GoogleCredentialsJSON), cfg.GoogleCalendarID)
 		if err != nil {
 			return err
@@ -171,11 +179,12 @@ func backup(ctx context.Context, cfg *config.Config, name string, content []byte
 }
 
 // trackedTime reads the window's Toggl entries, or returns nil when tracking is
-// off. A window older than Toggl's ~3-month lookback is a warning rather than a
-// failure: a monthly report for an old month is still worth writing without its
-// hours, and the guard means no request is spent on a call Toggl would reject.
+// off — switched off by togglOn, or unconfigured. A window older than Toggl's
+// ~3-month lookback is a warning rather than a failure: a monthly report for an
+// old month is still worth writing without its hours, and the guard means no
+// request is spent on a call Toggl would reject.
 func trackedTime(ctx context.Context, cfg *config.Config, since, until time.Time) (*toggl.Digest, error) {
-	if !cfg.TogglEnabled() {
+	if !togglOn || !cfg.TogglEnabled() {
 		return nil, nil
 	}
 	times, err := toggl.New(cfg.TogglAPIToken).Entries(ctx, since, until)
