@@ -1,9 +1,9 @@
 name: standup
 
+# No `schedule:` trigger: GitHub starts scheduled runs hours late. cron-job.org
+# dispatches this workflow at 08:00 Europe/Budapest, Mon–Fri, instead.
 on:
-  schedule:
-    - cron: "0 5 * * 1-5" # 05:00 UTC = 07:00 Budapest (CEST); 06:00 in winter (CET). Cron is UTC, no DST.
-  workflow_dispatch: {} # manual trigger for testing
+  workflow_dispatch: {}
 
 jobs:
   standup:

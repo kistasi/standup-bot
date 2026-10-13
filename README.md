@@ -168,9 +168,21 @@ make check        # fmt + vet + test
 
 ## Scheduling
 
-`.github/workflows/standup.yml` runs the bot on a cron (`0 5 * * 1-5` —
-05:00 UTC = 07:00 Budapest in summer, Mon–Fri) and on demand via
-`workflow_dispatch`. It reads secrets `GH_PAT` / `ANTHROPIC_API_KEY` /
+`.github/workflows/standup.yml` runs the bot via `workflow_dispatch` only.
+GitHub's own `schedule:` trigger started runs hours late, so a
+[cron-job.org](https://cron-job.org) job triggers it instead at 08:00
+Europe/Budapest, Mon–Fri:
+
+- **URL:** `https://api.github.com/repos/kistasi/standup-bot/actions/workflows/standup.yml/dispatches`
+- **Method:** `POST`, **body:** `{"ref":"main"}`
+- **Headers:** `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`,
+  `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`
+- **Token:** a fine-grained PAT for this repository only, with *Actions: write*
+- **Schedule:** custom, 08:00 Mon–Fri, timezone `Europe/Budapest`
+
+A successful dispatch returns `204 No Content`.
+
+The workflow It reads secrets `GH_PAT` / `ANTHROPIC_API_KEY` /
 `SLACK_WEBHOOK_URL` / `TOGGL_API_TOKEN` / `GOOGLE_CREDENTIALS_JSON` and repo
 variables `GH_ORG` / `AUTHOR_EMAILS` / `GOOGLE_CALENDAR_ID` (every secret after
 the second, and the last variable, optional).
